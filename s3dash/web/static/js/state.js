@@ -42,6 +42,7 @@ export const state = {
   section: null, // {id,label,name,start,end,page,kind,text,loading,error,offset}
 
   theme: 'auto', // 'auto' | 'light' | 'dark'
+  view: 'map', // 'map' | 'plots' | 'sections' — mirrors location.hash
   diagSort: { key: 'severity', dir: 1 },
 };
 
@@ -427,13 +428,40 @@ export function exposureUnit(payload = state.payload) {
 
 /* ------------------------------------------------------------ number helpers */
 
+/** Fixed-decimal formatting.
+ *
+ * Deliberately does NOT strip trailing zeros. The previous implementation
+ * stripped them only when the whole fractional part was zero, which printed
+ * "0.4300" and "1" from the same call — ragged precision in one sentence.
+ * An engineering read-out keeps the decimals it asked for. */
 export function fmt(value, digits = 3) {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'string') return value;
   if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
   const a = Math.abs(value);
   if (a !== 0 && (a < 1e-3 || a >= 1e6)) return value.toExponential(2);
-  return value.toFixed(digits).replace(/\.?0+$/, (m) => (m.includes('.') ? '' : m));
+  return value.toFixed(digits);
+}
+
+/** One decimal count for a whole layer, so every cell in it lines up.
+ *  Driven by the magnitude of the layer's extent, not by each value. */
+export function layerPrecision(values, tight = false) {
+  const ex = extent(values);
+  if (!ex) return 3;
+  const mag = Math.max(Math.abs(ex[0]), Math.abs(ex[1]));
+  const base = mag >= 1000 ? 0 : mag >= 100 ? 1 : mag >= 10 ? 2 : 3;
+  return tight ? Math.max(0, base - 1) : base;
+}
+
+/** True when the reader has asked the OS for less animation. */
+export function reducedMotion() {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** scrollIntoView that honours prefers-reduced-motion. */
+export function scrollTo(el, block = 'nearest') {
+  if (!el) return;
+  el.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block });
 }
 
 export function fmtFixed(value, digits = 3) {

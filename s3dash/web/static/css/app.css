@@ -14,8 +14,14 @@
   --border:        #ccd4de;
   --border-strong: #adb9c7;
   --text:          #16202b;
-  --text-dim:      #5a6a7a;
-  --text-faint:    #8593a3;
+  /* Pushed darker so the three ink levels stay a legible ramp (16.5 / 7.4 / 5.2)
+     after --text-faint had to be darkened for AA. */
+  --text-dim:      #4a5764;
+  /* Re-solved in OKLCH (hue and chroma held, lightness lowered) until it clears
+     4.5:1 on --panel, --panel-2 AND --panel-3: 5.19 / 4.83 / 4.50. The old
+     #8593a3 sat at 3.13:1 while carrying the core-map subtitle, the legend
+     footer, every meta key and the per-step exposures — all at 9.5-11 px. */
+  --text-faint:    #616e7d;
   --accent:        #14568f;
   --accent-soft:   #e3edf8;
   --accent-text:   #ffffff;
@@ -55,8 +61,8 @@
     --border:        #2a353f;
     --border-strong: #3d4a57;
     --text:          #dde5ee;
-    --text-dim:      #94a3b4;
-    --text-faint:    #6d7d8e;
+    --text-dim:      #a3b3c6;
+    --text-faint:    #8191a3;
     --accent:        #4f9ae8;
     --accent-soft:   #17293c;
     --accent-text:   #08121c;
@@ -90,8 +96,8 @@
   --border:        #2a353f;
   --border-strong: #3d4a57;
   --text:          #dde5ee;
-  --text-dim:      #94a3b4;
-  --text-faint:    #6d7d8e;
+  --text-dim:      #a3b3c6;
+  --text-faint:    #8191a3;
   --accent:        #4f9ae8;
   --accent-soft:   #17293c;
   --accent-text:   #08121c;
@@ -162,9 +168,12 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
 
 .app-header {
   position: sticky; top: 0; z-index: 40;
-  display: flex; align-items: center; gap: 18px;
+  /* Wraps rather than overflowing: brand + view nav + status chips + actions
+     need ~1050 px, so on anything narrower the actions used to run off the
+     right edge and be clipped by the body's overflow-x guard. */
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px;
   min-height: var(--hdr-h);
-  padding: 0 14px;
+  padding: 7px 14px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   box-shadow: var(--shadow);
@@ -185,29 +194,58 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
   max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-.meta-strip {
-  flex: 1 1 auto; min-width: 0;
-  display: grid; gap: 0; overflow: hidden;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-left: 1px solid var(--border);
-}
-@media (max-width: 1180px) { .meta-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.meta-item {
-  min-width: 0; padding: 2px 11px;
-  border-right: 1px solid var(--border);
-  display: flex; flex-direction: column; gap: 0;
+/* Run metadata — stacked in the left column, where values have room to wrap.
+   In the old horizontal header strip the case title, geometry and timing were
+   all ellipsised (they needed 434 / 320 / 200 px of the 173 px they got at
+   1440 px), and the whole strip was display:none below 980 px. */
+.meta-strip { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.meta-item { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.meta-item + .meta-item {
+  padding-top: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
 }
 .meta-k {
   font-size: 9.5px; text-transform: uppercase; letter-spacing: .07em;
-  color: var(--text-faint); font-weight: 600; white-space: nowrap;
+  color: var(--text-faint); font-weight: 700; white-space: nowrap;
 }
 .meta-v {
-  font-size: 12px; font-weight: 550; white-space: nowrap;
-  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-size: 11.5px; font-weight: 550; line-height: 1.4;
+  min-width: 0; overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
 
-.header-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+/* ---------------------------------------------------------------- view nav */
+
+.view-nav {
+  display: flex; gap: 2px; flex: 0 0 auto;
+  padding: 3px; border-radius: var(--radius);
+  background: var(--panel-2); border: 1px solid var(--border);
+}
+.viewtab {
+  padding: 6px 14px; border-radius: 5px;
+  color: var(--text-dim); text-decoration: none;
+  font: 650 11.5px/1.3 var(--sans); letter-spacing: .02em; white-space: nowrap;
+}
+.viewtab:hover { color: var(--text); background: var(--panel-3); }
+.viewtab.is-active {
+  background: var(--panel); color: var(--text);
+  box-shadow: var(--shadow);
+}
+.viewtab.is-active::before {
+  content: ""; display: inline-block; vertical-align: 1px;
+  width: 6px; height: 6px; margin-right: 6px; border-radius: 50%;
+  background: var(--accent);
+}
+
+.header-actions {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  flex: 0 1 auto; margin-left: auto;
+}
+/* Below this the three groups no longer share a line, so the view nav takes
+   its own full-width row and the actions stay on the brand row. */
+@media (max-width: 1120px) {
+  .view-nav { order: 3; flex: 0 0 100%; }
+}
 
 .completion-chip {
   display: inline-flex; align-items: center; gap: 5px;
@@ -332,12 +370,21 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
 .menu { position: relative; }
 .menu > summary { list-style: none; user-select: none; }
 .menu > summary::-webkit-details-marker { display: none; }
+/* Anchored to its right edge so it can never run off the viewport — the filter
+   control sits at the right end of the toolbar. */
 .menu-body {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 45;
-  min-width: 220px; max-height: 60vh; overflow: auto;
+  position: absolute; top: calc(100% + 6px); right: 0; left: auto; z-index: 45;
+  min-width: 220px; max-width: min(340px, calc(100vw - 28px));
+  max-height: 60vh; overflow: auto;
   padding: 10px; background: var(--panel);
   border: 1px solid var(--border-strong); border-radius: var(--radius);
   box-shadow: var(--shadow-pop);
+}
+/* Once the toolbar wraps, the control can land anywhere on the row, so the
+   popup spans the toolbar instead of guessing an edge to hang from. */
+@media (max-width: 1000px) {
+  .menu { position: static; }
+  .menu-body { left: 12px; right: 12px; min-width: 0; max-width: none; }
 }
 .filter-block { margin-bottom: 10px; }
 .filter-title {
@@ -360,17 +407,61 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
   padding: 12px;
   align-items: start;
 }
+
+/* Each view gets the column split it actually needs. With the map capped at
+   ~0.7x, handing the centre column all the leftover width would leave a hole
+   beside it — so the surplus goes to the panels, where the wide tables
+   (symmetry members, batch edits, the output summary) can use it. */
+body[data-view="map"] .layout {
+  grid-template-columns: minmax(230px, 290px) minmax(0, 560px) minmax(340px, 1fr);
+}
+body[data-view="plots"] .layout,
+body[data-view="sections"] .layout {
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+}
 .col-center { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .rail { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.view { min-width: 0; }
+
+/* With the charts on their own view the map column is no longer a tall stack,
+   so the map card is given breathing room rather than being left in a hole. */
+#view-map { padding: 14px 16px 16px; }
 
 @media (max-width: 1340px) {
-  .layout { grid-template-columns: minmax(210px, 260px) minmax(0, 1fr); }
+  .layout,
+  body[data-view="map"] .layout,
+  body[data-view="plots"] .layout,
+  body[data-view="sections"] .layout {
+    grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
+  }
   .rail-right { grid-column: 1 / -1; }
 }
 @media (max-width: 980px) {
-  .layout { grid-template-columns: minmax(0, 1fr); }
+  .layout,
+  body[data-view="map"] .layout,
+  body[data-view="plots"] .layout,
+  body[data-view="sections"] .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .rail-right { grid-column: auto; }
-  .meta-strip { display: none; }
+  /* The run identity stays — it just becomes a two-up grid instead of a column. */
+  .meta-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
+  .meta-item + .meta-item { padding-top: 0; border-top: 0; }
+}
+@media (max-width: 720px) {
+  .app-header { flex-wrap: wrap; gap: 8px 12px; padding: 8px 12px; }
+  .view-nav { order: 3; width: 100%; }
+  .view-nav .viewtab { flex: 1 1 0; text-align: center; }
+  .header-actions { flex-wrap: wrap; }
+  .meta-strip { grid-template-columns: minmax(0, 1fr); }
+}
+/* Once the header and toolbar both wrap they eat most of a short screen, so
+   they stop being sticky and give the data the viewport back. */
+@media (max-width: 720px), (max-height: 620px) {
+  .app-header { position: static; }
+  /* relative, not static: the filter popup still needs it as a containing block */
+  .toolbar { position: relative; top: auto; }
+  .panel { max-height: none; }
 }
 
 .card {
@@ -394,6 +485,11 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
 .card-head-note {
   margin-left: auto; font-size: 11px; color: var(--text-faint);
   font-variant-numeric: tabular-nums; text-align: right;
+}
+/* An active filter is a claim about what you are NOT seeing — say it in ink. */
+.card-head-note.is-filtered {
+  color: var(--warn); font-weight: 600;
+  background: var(--warn-bg); border-radius: 4px; padding: 2px 7px;
 }
 .card-head select { margin-left: auto; }
 .card-head select + .btn, .card-head-note + .btn { margin-left: 8px; }
@@ -453,12 +549,16 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
 
 /* ---------------------------------------------------------------- core map */
 
-.coremap-wrap { display: flex; flex-direction: column; gap: 10px; }
-.coremap { width: 100%; min-width: 0; }
+/* The map is capped at ~0.7x its former footprint so it sits inside the page
+   rather than being the page. It still fills the column below that width, so
+   narrow viewports lose nothing. */
+.coremap-wrap { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+.coremap { width: 100%; min-width: 0; max-width: 500px; margin-inline: auto; }
 .coremap-svg { width: 100%; height: auto; display: block; }
+.legend { max-width: 620px; margin-inline: auto; width: 100%; }
 
 .head-text {
-  font: 600 30px/1 var(--sans);
+  font: 650 26px/1 var(--sans);
   fill: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -467,15 +567,31 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
 .cell-bg { stroke: var(--panel); stroke-width: 1.5; }
 .cell-bg.no-data, .cell-bg.crd-out { fill: var(--cell-empty); }
 .cell-bg.crd-out { fill: var(--crd-out); }
-.cell-label { font: 600 24px/1 var(--sans); pointer-events: none; }
+.cell-label { font: 600 27px/1 var(--sans); pointer-events: none; opacity: .82; }
+.cell-label.is-solo { font-size: 33px; opacity: 1; }
 .cell-value {
-  font: 700 31px/1 var(--sans); font-variant-numeric: tabular-nums;
+  font: 700 34px/1 var(--sans); font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
 .crd-out-text { font-size: 26px; letter-spacing: 1px; }
-.cell-hatch { pointer-events: none; }
-.cell-flag { fill: var(--err); pointer-events: none; }
+/* Light enough to read as a texture under the numbers rather than over them. */
+.cell-hatch { pointer-events: none; opacity: .42; }
+.cell-calc {
+  fill: none; stroke: currentColor; stroke-width: 3; opacity: .68;
+  stroke-dasharray: 9 7; pointer-events: none;
+}
+.cell-flag { fill: var(--err); stroke-width: 3; pointer-events: none; }
 .cell-ring { fill: none; stroke: none; pointer-events: none; }
+
+/* All-rods-out schematic — the drive layout, not 225 repetitions of "OUT". */
+.aro-block { display: flex; flex-direction: column; gap: 12px; }
+.crd-schematic { width: 100%; max-width: 300px; height: auto; margin-inline: auto; display: block; }
+.crd-dot { fill: var(--crd-out); stroke: var(--border-strong); stroke-width: .8; }
+.crd-dot.is-none { fill: var(--cell-void); stroke: none; }
+.aro-cap {
+  font-size: 10.5px; color: var(--text-faint); text-align: center;
+  max-width: 52ch; margin-inline: auto; line-height: 1.5;
+}
 
 .cell.is-dim { opacity: .16; }
 .cell.is-selected .cell-ring { stroke: var(--text); stroke-width: 6; }
@@ -488,8 +604,15 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
   padding-top: 9px;
   display: flex; flex-direction: column; gap: 5px;
 }
-.legend-title { font-size: 11.5px; font-weight: 650; }
+.legend-title {
+  font-size: 11.5px; font-weight: 650;
+  display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap;
+}
 .legend-unit { color: var(--text-faint); font-weight: 500; }
+.legend-dir {
+  margin-left: auto; font: 600 9.5px/1.6 var(--sans);
+  text-transform: uppercase; letter-spacing: .07em; color: var(--text-faint);
+}
 .legend-bar {
   height: 11px; border-radius: 3px; border: 1px solid var(--border);
 }
@@ -516,6 +639,7 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
   background: repeating-linear-gradient(45deg, var(--text-faint) 0 1.5px, transparent 1.5px 4px);
   border: 1px solid var(--border);
 }
+.mark-calc { border: 1.5px dashed var(--text-dim); border-radius: 2px; }
 .crd-banner {
   display: flex; align-items: center; gap: 9px;
   padding: 7px 10px; border-radius: 6px;
@@ -567,8 +691,10 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
 .cursor-line { stroke: var(--text); stroke-width: 1; stroke-dasharray: 3 3; opacity: .45; }
 .ref-line { stroke: var(--err); stroke-width: 1.3; stroke-dasharray: 6 4; opacity: .85; }
 .ref-text { font: 600 10.5px/1 var(--sans); fill: var(--err); }
-.axial-bar { stroke: var(--panel); stroke-width: .6; cursor: pointer; }
-.axial-bar.is-current { stroke: var(--text); stroke-width: 2; }
+/* One series, one hue — bar length already carries the magnitude. */
+.axial-bar { fill: var(--accent); stroke: var(--panel); stroke-width: .6; cursor: pointer; opacity: .8; }
+.axial-bar:hover { opacity: 1; }
+.axial-bar.is-current { stroke: var(--text); stroke-width: 2; opacity: 1; }
 .axial-line { stroke: var(--text); stroke-width: 1.4; opacity: .65; }
 .hist-bar { stroke: var(--panel); stroke-width: .6; }
 .stat-line { stroke-width: 1.4; stroke-dasharray: 5 3; }
@@ -581,7 +707,8 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
 .mini-chart { width: 100%; max-width: 420px; height: auto; margin-top: 8px; }
 .mini-label { font: 500 10.5px/1 var(--sans); fill: var(--text-dim); }
 .mini-value { font: 600 10.5px/1 var(--sans); fill: var(--text-faint); font-variant-numeric: tabular-nums; }
-.mini-bar { stroke: var(--panel); stroke-width: .5; }
+/* One series, one hue — rows that carry identity override this inline. */
+.mini-bar { fill: var(--accent); stroke: var(--panel); stroke-width: .5; }
 
 .chart-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -626,6 +753,54 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
   padding-bottom: 4px; margin-bottom: 6px;
   border-bottom: 1px solid var(--border);
 }
+
+/* Reference blocks that must be reachable without pushing the reader's
+   actual subject below the fold. */
+details.fold > summary {
+  display: flex; align-items: center; gap: 7px; cursor: pointer;
+  padding-bottom: 4px; margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  list-style: none;
+}
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::before {
+  content: "▸"; font-size: 9px; color: var(--text-faint); flex: 0 0 auto;
+}
+details.fold[open] > summary::before { content: "▾"; }
+.fold-title {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--text-faint); font-weight: 700;
+}
+.fold-note { margin-left: auto; font-size: 10px; color: var(--text-faint); }
+.sum-table th { text-transform: none; letter-spacing: 0; }
+.sum-table tbody th {
+  position: static; background: none; font-size: 11px; font-weight: 500;
+  color: var(--text-dim); text-transform: none; letter-spacing: 0;
+  white-space: normal; padding-left: 0;
+}
+.sum-table td.unit { color: var(--text-faint); font-size: 10.5px; white-space: nowrap; }
+.code-tag {
+  margin-left: 6px; padding: 0 4px; border-radius: 3px;
+  background: var(--panel-3); color: var(--text-faint);
+  font: 600 9px/1.6 var(--mono);
+}
+.be-block { margin-bottom: 10px; }
+.be-code {
+  font: 700 10px/1.6 var(--mono); letter-spacing: .06em;
+  color: var(--accent); margin-bottom: 3px;
+}
+.sub-id { display: block; font: 500 9.5px/1.4 var(--mono); color: var(--text-faint); }
+
+/* Which optional edits this run actually carries. */
+.kv.blocks th { width: 44%; }
+.blk {
+  display: inline-block; padding: 0 6px; border-radius: 3px;
+  font: 700 9.5px/1.7 var(--sans); text-transform: uppercase; letter-spacing: .05em;
+}
+.blk.yes { background: var(--ok-bg); color: var(--ok); }
+.blk.ok  { background: var(--ok-bg); color: var(--ok); }
+.blk.no  { background: var(--panel-3); color: var(--text-dim); }
+.blk-why { margin-top: 2px; font-size: 10.5px; color: var(--text-faint); line-height: 1.45; font-weight: 400; }
 .panel-h {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
   color: var(--text-faint); font-weight: 700;
@@ -690,6 +865,15 @@ th.sort-desc::after { content: " ▼"; font-size: 8px; }
 .sym-msg { margin: 0 0 7px; font-size: 11px; color: var(--text-dim); line-height: 1.45; }
 .sym-table td { font-variant-numeric: tabular-nums; }
 .sym-table tr.is-here { background: var(--accent-soft); }
+.sym-table tr.is-worst td { background: color-mix(in srgb, var(--warn-bg) 60%, transparent); }
+.sym-table td.delta { font-weight: 700; color: var(--warn); white-space: nowrap; }
+.sym-worst {
+  margin: 0 0 7px; padding: 6px 9px; border-radius: 5px;
+  background: var(--warn-bg); color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+  font-size: 11px; line-height: 1.45;
+}
+.sym-worst b { font-variant-numeric: tabular-nums; }
 .sym-tag { margin-left: 5px; font: 600 9.5px/1 var(--mono); color: var(--text-faint); }
 .quad-grid { display: inline-grid; grid-template-columns: 1fr 1fr; gap: 1px 6px; }
 .quad-grid i { font: 500 10px/1.4 var(--mono); font-style: normal; color: var(--text-dim); }
@@ -823,10 +1007,27 @@ th.sort-desc::after { content: " ▼"; font-size: 8px; }
 
 .tooltip {
   position: fixed; z-index: 60; pointer-events: none;
-  max-width: 320px; padding: 9px 11px;
+  width: max-content; max-width: 264px; padding: 8px 10px;
+  /* Never taller than the viewport it is pinned inside. */
+  max-height: calc(100vh - 24px); overflow: hidden;
   background: var(--panel); color: var(--text);
   border: 1px solid var(--border-strong); border-radius: 6px;
   box-shadow: var(--shadow-pop); font-size: 11px;
+}
+.tt-lead {
+  display: flex; align-items: baseline; gap: 7px;
+  margin: 0 0 6px; padding-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+}
+.tt-lead-v {
+  font: 700 19px/1 var(--sans); font-variant-numeric: tabular-nums;
+  color: var(--text); letter-spacing: -.01em;
+}
+.tt-lead-k { font-size: 10px; color: var(--text-faint); line-height: 1.3; }
+.tt-hint {
+  margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--border);
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--text-faint);
 }
 .tt-head {
   display: flex; align-items: baseline; gap: 7px;
@@ -858,33 +1059,63 @@ th.sort-desc::after { content: " ▼"; font-size: 8px; }
 
 /* ------------------------------------------------------------------- print */
 
+/* ------------------------------------------------------- reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .btn:active { transform: none; }
+}
+
+/* ------------------------------------------------------------------- print */
+
 @media print {
   :root {
     --bg: #fff; --bg-grad: #fff; --panel: #fff; --panel-2: #fff; --panel-3: #f2f2f2;
-    --border: #999; --border-strong: #666; --text: #000; --text-dim: #333; --text-faint: #555;
+    --border: #999; --border-strong: #666; --text: #000; --text-dim: #333; --text-faint: #4a4a4a;
     --shadow: none; --shadow-pop: none;
   }
-  body { background: #fff; font-size: 10pt; }
+  body { background: #fff; font-size: 9.5pt; }
   @page { margin: 12mm; }
 
-  .toolbar, .rail-left, .tabs, .header-actions .btn, .skip-link,
+  .toolbar, .tabs, .header-actions, .skip-link, .view-nav,
   .tooltip, .toast, .hero, #load-dialog, .chart-data, .card-tools,
-  #section-copy, .menu { display: none !important; }
+  #section-copy, .menu, .tt-hint { display: none !important; }
 
-  .app-header { position: static; box-shadow: none; border-bottom: 1px solid #000; }
-  .meta-strip { display: flex !important; flex-wrap: wrap; }
-  .meta-v { max-width: none; }
+  .app-header { position: static; box-shadow: none; border-bottom: 1px solid #000; padding: 0 0 6px; }
 
+  /* A printed report is one document: every view goes on the page, in order,
+     regardless of which one happened to be on screen. */
   .layout { display: block; padding: 0; }
+  .view[hidden], #nav-card[hidden], #rail-right[hidden], .panel[hidden] {
+    display: block !important;
+  }
+  .view { break-before: auto; }
+  #view-plots, #view-sections { break-before: page; page-break-before: always; }
+
   .card, .panel {
     box-shadow: none; border: 1px solid #bbb;
     break-inside: avoid; page-break-inside: avoid; margin-bottom: 10px;
     max-height: none; overflow: visible;
   }
-  .panel[hidden] { display: block !important; }
-  .rail-right { margin-top: 10px; }
+  details.fold, .chart-data { display: block !important; }
+  details.fold > summary::before { content: ""; }
+  .rail-left, .rail-right { margin-top: 10px; }
+  .meta-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 14px; }
+  .meta-item + .meta-item { padding-top: 0; border-top: 0; }
+
   .chart-grid { grid-template-columns: 1fr 1fr; }
   .lst-body, .tree-scroll, .hits-scroll { max-height: none; overflow: visible; }
-  .coremap-svg, .chart-svg { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  /* The map prints at full column width — on paper there is no competing chrome. */
+  .coremap { max-width: 150mm; }
+  .coremap-svg, .chart-svg, .mini-chart, .crd-schematic {
+    print-color-adjust: exact; -webkit-print-color-adjust: exact;
+  }
   .cell-bg { stroke: #fff; }
+  .data-table th { position: static; }
+  .table-wrap { overflow: visible; }
 }

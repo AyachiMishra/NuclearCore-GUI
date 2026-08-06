@@ -18,15 +18,26 @@ import {
   exposureUnit,
   gridSize,
   anyFilterActive,
+  visibilityMask,
   categories,
   controlRodSummary,
+  scrollTo,
   fmt,
   fmtFixed,
   esc,
 } from './state.js';
 import { listSamples, parseSample, parseUpload, searchText, exportJsonUrl, exportCsvUrl } from './api.js';
 import { initCoreMap, renderCoreMap, hideTooltip } from './coremap.js';
-import { initCharts, renderDepletionChart, renderAxialChart, renderHistogram, DEPLETION_METRICS } from './charts.js';
+import {
+  initCharts,
+  renderDepletionChart,
+  renderAxialChart,
+  renderHistogram,
+  renderInventoryChart,
+  renderCpuChart,
+  DEPLETION_METRICS,
+} from './charts.js';
+import { initRouter, goTo, applyView } from './views.js';
 import {
   renderHeader,
   renderInspector,
@@ -56,6 +67,12 @@ function applyTheme() {
   const btn = $('#btn-theme');
   if (btn) btn.title = `Colour theme: ${t} (click to change)`;
   try { localStorage.setItem('s3dash.theme', t); } catch (_) { /* private mode */ }
+  // Light and dark carry different ramp anchors, so anything holding a baked
+  // fill has to be redrawn — the CSS tokens alone cannot do it.
+  if (state.payload) {
+    renderCoreMap();
+    drawCharts();
+  }
 }
 
 function initTheme() {
@@ -121,6 +138,7 @@ function buildToolbar() {
   const p = state.payload;
   $('#toolbar').hidden = !p;
   $('#layout').hidden = !p;
+  $('#view-nav').hidden = !p;
   $('#hero').hidden = !!p;
   if (!p) return;
 
@@ -302,10 +320,17 @@ function renderCoreMapTitle() {
       ? `${crd.cr.rows.length}×${crd.cr.cols.length} drive grid · ${crd.label} · step ${sp ? sp.step : 0}`
       : `no control-rod map at step ${sp ? sp.step : 0}`;
   } else {
-    const shown = layerValues().filter((v) => v !== null && v !== undefined).length;
-    $('#coremap-note').textContent =
-      `${n}×${n} lattice · ${g.nAssemblies ?? shown} fuelled positions · step ${sp ? sp.step : 0}` +
-      (anyFilterActive() ? ' · filtered' : '');
+    const withValue = layerValues().filter((v) => v !== null && v !== undefined).length;
+    const total = (p.assemblies || []).length;
+    const note = $('#coremap-note');
+    let text = `${n}×${n} lattice · ${g.nAssemblies ?? withValue} fuelled positions · step ${sp ? sp.step : 0}`;
+    if (anyFilterActive()) {
+      // Say what is being withheld — a dimmed cell is easy to misread as "no data".
+      const visible = visibilityMask(p).filter(Boolean).length;
+      text += ` · filtered to ${visible} of ${total}, ${total - visible} dimmed`;
+    }
+    note.textContent = text;
+    note.classList.toggle('is-filtered', anyFilterActive());
   }
 
   const note = $('#hist-note');
@@ -346,7 +371,8 @@ function gotoLine(line) {
     { id: `line-${line}`, name: `Line ${line}`, label: `Listing around line ${line}`, kind: 'text', start: line, end: line + 1, page: null },
     { context: 12, highlight: line }
   );
-  $('#section-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  goTo('sections');
+  scrollTo($('#view-sections'));
 }
 
 /* -------------------------------------------------------------------- tabs */
@@ -390,8 +416,9 @@ function wireControls() {
   $('#load-close').addEventListener('click', () => $('#load-dialog').close());
 
   $('#status-badge').addEventListener('click', () => {
+    goTo('map');
     setTab('diagnostics');
-    $('#panel-diagnostics').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    scrollTo($('#panel-diagnostics'));
     $('#tab-diagnostics').focus();
   });
 
@@ -451,7 +478,8 @@ function wireControls() {
       try { sec = JSON.parse(leaf.dataset.section); } catch (_) { sec = null; }
       if (sec) {
         openSection(sec);
-        $('#section-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        goTo('sections');
+        scrollTo($('#view-sections'));
       }
     }
   });
@@ -474,7 +502,8 @@ function wireControls() {
       const idx = (state.payload.assemblyIndex || {})[rc.dataset.selectRc];
       if (idx !== undefined) {
         update({ selection: idx, tab: 'inspector' }, 'selection', 'tab');
-        $('#coremap-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        goTo('map');
+        scrollTo($('#view-map'));
       }
       return;
     }
@@ -504,11 +533,20 @@ function wireControls() {
     const el = document.activeElement;
     const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
     if (typing || !state.payload) return;
+    if (state.view !== 'map' && state.view !== 'plots') return;
     if (e.key === 'ArrowLeft' && !el.closest('.coremap')) { e.preventDefault(); stepBy(-1); }
     if (e.key === 'ArrowRight' && !el.closest('.coremap')) { e.preventDefault(); stepBy(1); }
   });
 
   window.addEventListener('scroll', hideTooltip, { passive: true });
+
+  // In "auto" the OS can flip the theme under us, and the ramp anchors differ.
+  if (typeof matchMedia === 'function') {
+    const mq = matchMedia('(prefers-color-scheme: dark)');
+    const onScheme = () => { if (state.theme === 'auto' && state.payload) { renderCoreMap(); drawCharts(); } };
+    if (mq.addEventListener) mq.addEventListener('change', onScheme);
+    else if (mq.addListener) mq.addListener(onScheme);
+  }
 }
 
 function stepBy(delta) {
@@ -531,11 +569,43 @@ function drawCharts() {
   renderDepletionChart($('#chart-depletion'));
   renderAxialChart($('#chart-axial'));
   renderHistogram($('#chart-hist'));
+  renderInventoryChart($('#chart-inventory'));
+  renderCpuChart($('#chart-cpu'));
 }
 
-/* ---------------------------------------------------------------- dispatch */
+/* ---------------------------------------------------------------- dispatch
+ *
+ * Renders are coalesced into one animation frame. A single `input` from the
+ * step slider used to cost 19-27 ms — it rebuilds ~1260 SVG nodes plus three
+ * charts and the inspector — so dragging across 30-odd steps fired several
+ * full redraws per frame and stuttered. Collapsing every update inside a frame
+ * into one render keeps the drag at one redraw per frame.
+ */
+
+let pendingKeys = null;
+let rafId = 0;
 
 function onChange(keys) {
+  if (!pendingKeys) pendingKeys = new Set();
+  for (const k of keys) pendingKeys.add(k);
+  if (rafId) return;
+  rafId = requestAnimationFrame(() => {
+    rafId = 0;
+    const batch = pendingKeys;
+    pendingKeys = null;
+    flush(batch);
+  });
+}
+
+/* Only the visible view is drawn. A hidden container has zero width anyway, so
+ * rendering into it is both wasted work and wrong — anything that measures its
+ * host would read 0. Entering a view redraws it from current state, which is
+ * what keeps switching lossless. */
+const onMap = () => state.view === 'map';
+const onPlots = () => state.view === 'plots';
+const onSections = () => state.view === 'sections';
+
+function flush(keys) {
   const any = (...k) => k.some((x) => keys.has(x));
 
   if (any('theme')) applyTheme();
@@ -543,36 +613,57 @@ function onChange(keys) {
   if (any('payload')) {
     renderHeader();
     buildToolbar();
-    renderCoreMap();
-    drawCharts();
-    renderInspector();
-    renderDiagnostics();
-    renderInventory();
-    renderNavTree();
-    renderSectionViewer();
-    renderSearchResults();
+    applyView(state.view);
+    renderView(state.view);
     renderTabs();
     return;
   }
 
   if (any('step', 'layer', 'selection', 'filters', 'flagged')) {
-    renderCoreMap();
+    if (onMap()) renderCoreMap();
     renderCoreMapTitle();
   }
   if (any('step')) {
     renderStepReadout();
-    renderNavTree();
+    if (onSections()) renderNavTree();
   }
-  if (any('step', 'layer')) renderHistogram($('#chart-hist'));
-  if (any('step', 'depl')) renderDepletionChart($('#chart-depletion'));
-  if (any('step', 'axial')) renderAxialChart($('#chart-axial'));
-  if (any('step', 'layer', 'selection', 'axial')) renderInspector();
+  if (onPlots()) {
+    if (any('step', 'layer')) renderHistogram($('#chart-hist'));
+    if (any('step', 'depl')) renderDepletionChart($('#chart-depletion'));
+    if (any('step', 'axial')) renderAxialChart($('#chart-axial'));
+  }
+  if (onMap() && any('step', 'layer', 'selection', 'axial')) renderInspector();
   if (any('filters', 'flagged')) renderFilterPill();
   if (any('tab', 'selection')) renderTabs();
-  if (any('diag')) renderDiagnostics();
-  if (any('tree', 'section')) renderNavTree();
-  if (any('section')) renderSectionViewer();
+  if (onMap() && any('diag')) renderDiagnostics();
+  if (onSections() && any('tree', 'section')) renderNavTree();
+  if (onSections() && any('section')) renderSectionViewer();
+  // Text hits live in the left rail, which every view shows — a search run from
+  // the map still has to report back.
   if (any('search')) renderSearchResults();
+}
+
+/** Draw everything the given view shows, from current state. */
+function renderView(view) {
+  if (!state.payload) return;
+  if (view === 'map') {
+    renderCoreMap();
+    renderCoreMapTitle();
+    renderInspector();
+    renderDiagnostics();
+    renderInventory();
+  } else if (view === 'plots') {
+    drawCharts();
+  } else if (view === 'sections') {
+    renderNavTree();
+    renderSectionViewer();
+    renderSearchResults();
+  }
+}
+
+function onEnterView(view) {
+  hideTooltip();
+  renderView(view);
 }
 
 /* -------------------------------------------------------------------- boot */
@@ -587,6 +678,7 @@ async function boot() {
   initCharts($('#chart-depletion'), $('#chart-axial'));
   wireControls();
   subscribe(onChange);
+  initRouter(onEnterView);
 
   renderHeader();
   renderTabs();

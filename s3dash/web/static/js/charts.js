@@ -21,7 +21,7 @@ import {
   fmt,
   esc,
 } from './state.js';
-import { viridis, categoricalColor } from './coremap.js';
+import { sequential, categoricalColor } from './coremap.js';
 
 const W = 660;
 const H = 300;
@@ -52,6 +52,15 @@ function niceTicks(lo, hi, target = 5) {
     out.push(Math.abs(t) < step * 1e-9 ? 0 : t);
   }
   return out.length ? out : [lo, hi];
+}
+
+/** Decimals an axis needs to tell its own ticks apart — no more, no less.
+ *  A step of 5 prints "0, 5, 10"; a step of 0.02 prints "1.14". */
+function tickDigits(ticks) {
+  if (!ticks || ticks.length < 2) return 2;
+  const step = Math.abs(ticks[1] - ticks[0]);
+  if (!Number.isFinite(step) || step === 0) return 2;
+  return Math.max(0, Math.min(6, -Math.floor(Math.log10(step))));
 }
 
 function padDomain(lo, hi) {
@@ -107,18 +116,20 @@ function axes(xTicks, yTicks, xScale, yScale, xLabel, yLabel, opts = {}) {
     `<g class="axis"><line x1="${M.left}" y1="${M.top}" x2="${M.left}" y2="${M.top + PH}"/>` +
       `<line x1="${M.left}" y1="${M.top + PH}" x2="${M.left + PW}" y2="${M.top + PH}"/></g>`
   );
+  const yd = tickDigits(yTicks);
+  const xd = tickDigits(xTicks);
   out.push('<g class="tick-text">');
   for (const t of yTicks) {
     out.push(
       `<text x="${M.left - 9}" y="${yScale(t) + 4}" text-anchor="end">${esc(
-        opts.yFmt ? opts.yFmt(t) : fmt(t, 4)
+        opts.yFmt ? opts.yFmt(t) : fmt(t, yd)
       )}</text>`
     );
   }
   for (const t of xTicks) {
     out.push(
       `<text x="${xScale(t)}" y="${M.top + PH + 20}" text-anchor="middle">${esc(
-        opts.xFmt ? opts.xFmt(t) : fmt(t, 4)
+        opts.xFmt ? opts.xFmt(t) : fmt(t, xd)
       )}</text>`
     );
   }
@@ -296,16 +307,17 @@ export function renderAxialChart(host) {
     })
   );
 
-  // filled bars for the profile, then a connecting line
+  // One series, one hue. Colouring these bars by their own value would just
+  // re-encode the length they already show, and the axial chart shares no
+  // colour scale with anything else on the page.
   for (const d of vals) {
     const y = yScale(d.node) - bandH * 0.36;
     const w = Math.max(1, xScale(d.v) - xScale(Math.max(x0, 0)));
-    const t = (d.v - xe[0]) / (xe[1] - xe[0] || 1);
     const isSel = state.axialNode === d.node;
     body.push(
       `<rect class="axial-bar${isSel ? ' is-current' : ''}" x="${xScale(Math.max(x0, 0)).toFixed(2)}" ` +
         `y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${(bandH * 0.72).toFixed(2)}" ` +
-        `fill="${viridis(t)}" data-node="${d.node}"><title>Node ${d.node}: ${fmt(d.v, 5)}</title></rect>`
+        `data-node="${d.node}"><title>Node ${d.node}: ${fmt(d.v, 5)}</title></rect>`
     );
   }
   const line = vals
@@ -430,7 +442,7 @@ export function renderHistogram(host) {
     const y = yScale(bins[b]);
     body.push(
       `<rect class="hist-bar" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" ` +
-        `height="${(M.top + PH - y).toFixed(2)}" fill="${viridis((b + 0.5) / nBins)}">` +
+        `height="${(M.top + PH - y).toFixed(2)}" fill="${sequential((b + 0.5) / nBins)}">` +
         `<title>${fmt(lo + b * width, 4)} – ${fmt(lo + (b + 1) * width, 4)}: ${bins[b]} assemblies</title></rect>`
     );
   }
@@ -502,7 +514,7 @@ function renderCategoryBars(host, layer, values) {
     const x = M.left + i * band + band * 0.14;
     const w = band * 0.72;
     const y = yScale(c.count);
-    const color = layer.kind === 'category' ? categoricalColor(i) : viridis((i + 0.5) / shown.length);
+    const color = layer.kind === 'category' ? categoricalColor(i) : sequential((i + 0.5) / shown.length);
     body.push(
       `<rect class="hist-bar" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" ` +
         `height="${(M.top + PH - y).toFixed(2)}" fill="${color}"><title>${esc(c.value)}: ${c.count}</title></rect>`
@@ -540,33 +552,116 @@ function renderCategoryBars(host, layer, values) {
 
 /* -------------------------------------------------- small inline bar chart */
 
-/** Compact horizontal bars used by the inventory panel. */
+/** Compact horizontal bars. One series wears one hue unless the caller passes
+ *  an identity colour per row (the fuel-type chart, which shares the core
+ *  map's categorical palette so the two read as the same encoding). */
 export function miniBars(rows, opts = {}) {
   if (!rows.length) return '';
   const max = Math.max(...rows.map((r) => r.value)) || 1;
-  const rowH = 22;
-  const h = rows.length * rowH + 8;
+  const rowH = 24;
+  const h = rows.length * rowH + 10;
   const labelW = opts.labelWidth || 82;
-  const barW = 260;
+  const barW = 300;
+  const suffix = opts.suffix || '';
   const body = rows
     .map((r, i) => {
-      const y = 4 + i * rowH;
+      const y = 5 + i * rowH;
       const w = (r.value / max) * barW;
-      const color = r.color || viridis((i + 0.5) / rows.length);
+      const fill = r.color ? ` fill="${r.color}"` : '';
       return (
         `<text class="mini-label" x="${labelW - 8}" y="${y + 14}" text-anchor="end">${esc(r.label)}</text>` +
-        `<rect class="mini-bar" x="${labelW}" y="${y + 3}" width="${Math.max(1, w).toFixed(1)}" height="13" ` +
-        `rx="2" fill="${color}"><title>${esc(r.label)}: ${r.value}</title></rect>` +
-        `<text class="mini-value" x="${labelW + Math.max(1, w) + 6}" y="${y + 14}">${esc(r.value)}</text>`
+        `<rect class="mini-bar" x="${labelW}" y="${y + 3}" width="${Math.max(1, w).toFixed(1)}" height="14" ` +
+        `rx="3"${fill}><title>${esc(r.label)}: ${esc(r.value)}${esc(suffix)}</title></rect>` +
+        `<text class="mini-value" x="${labelW + Math.max(1, w) + 6}" y="${y + 14}">${esc(r.value)}${esc(suffix)}</text>`
       );
     })
     .join('');
   return (
-    `<svg class="mini-chart" viewBox="0 0 ${labelW + barW + 48} ${h}" preserveAspectRatio="xMinYMin meet" ` +
+    `<svg class="mini-chart" viewBox="0 0 ${labelW + barW + 60} ${h}" preserveAspectRatio="xMinYMin meet" ` +
     `role="img" aria-label="${esc(opts.title || 'Bar chart')}"><title>${esc(opts.title || 'Bar chart')}</title>` +
     body +
     `</svg>`
   );
+}
+
+/* ------------------------------------------------- plots-view side charts */
+
+/** Assembly count by fuel type — shares the core map's categorical palette. */
+export function renderInventoryChart(host) {
+  if (!host) return;
+  const p = state.payload;
+  if (!p) { host.innerHTML = ''; return; }
+  const inv = p.inventory || [];
+  if (!inv.length) {
+    host.innerHTML = emptyFigure(
+      'No fuel inventory summary',
+      'This listing carries no fuel-inventory block, so there is nothing to count by type.'
+    );
+    return;
+  }
+  const total = inv.reduce((a, r) => a + (r.count || 0), 0);
+  host.innerHTML =
+    `<figure class="chart">` +
+    miniBars(
+      inv.map((r, i) => ({
+        label: r.typeName || `Type ${r.fuelType}`,
+        value: r.count || 0,
+        color: categoricalColor(i),
+      })),
+      { title: 'Assembly count by fuel type', labelWidth: 112 }
+    ) +
+    `<figcaption>${inv.length} fuel type(s) over ${total} assemblies. Colours match the ` +
+    `<b>Fuel type</b> layer on the core map.</figcaption>` +
+    `<details class="chart-data"><summary>Data table</summary><div class="table-wrap">` +
+    `<table class="data-table"><thead><tr><th class="num">Type</th><th>Name</th>` +
+    `<th class="num">Count</th></tr></thead><tbody>` +
+    inv
+      .map(
+        (r) =>
+          `<tr><td class="num">${esc(r.fuelType)}</td><td class="mono">${esc(r.typeName || '—')}</td>` +
+          `<td class="num">${esc(r.count)}</td></tr>`
+      )
+      .join('') +
+    `</tbody></table></div></details></figure>`;
+}
+
+/** CPU seconds by subroutine, from meta.timing. */
+export function renderCpuChart(host) {
+  if (!host) return;
+  const p = state.payload;
+  if (!p) { host.innerHTML = ''; return; }
+  const t = (p.meta || {}).timing || {};
+  const subs = Array.isArray(t.subroutines) ? t.subroutines.filter((s) => Number.isFinite(s.cpuSeconds)) : [];
+  if (!subs.length) {
+    host.innerHTML = emptyFigure(
+      'No CPU profile',
+      'This listing has no per-subroutine timing table, so the execution profile cannot be drawn.'
+    );
+    return;
+  }
+  const shown = subs.slice(0, 10);
+  host.innerHTML =
+    `<figure class="chart">` +
+    miniBars(
+      shown.map((s) => ({ label: s.subroutine, value: Number(s.cpuSeconds.toFixed(3)) })),
+      { title: 'CPU seconds by subroutine', labelWidth: 92, suffix: ' s' }
+    ) +
+    `<figcaption>Top ${shown.length} of ${subs.length} subroutines by CPU time. Total run ` +
+    `${esc(fmt(t.cpuSeconds, 3))} s CPU, ${esc(fmt(t.elapsedSeconds, 3))} s elapsed` +
+    `${Number.isFinite(t.cpuUtilisation) ? `, ${esc(fmt(t.cpuUtilisation, 2))} % utilisation` : ''}.` +
+    `</figcaption>` +
+    `<details class="chart-data"><summary>Data table</summary><div class="table-wrap">` +
+    `<table class="data-table"><thead><tr><th>Subroutine</th><th class="num">CPU (s)</th>` +
+    `<th class="num">%</th><th class="num">Calls</th><th class="num">ms/call</th></tr></thead><tbody>` +
+    subs
+      .map(
+        (s) =>
+          `<tr><td class="mono">${esc(s.subroutine)}</td><td class="num">${esc(fmt(s.cpuSeconds, 3))}</td>` +
+          `<td class="num">${esc(fmt(s.percent, 1))}</td><td class="num">${esc(fmt(s.calls, 0))}</td>` +
+          `<td class="num">${esc(fmt(s.msPerCall, 2))}</td></tr>`
+      )
+      .join('') +
+    `</tbody></table></div></details></figure>`;
 }
 
 /* ---------------------------------------------------------------- wiring */
