@@ -2,8 +2,7 @@
  *
  * The grid is sized from geometry.iafull; row/column headers come from
  * assemblies[].site. Fill comes from the active layer through either a
- * perceptually-ordered sequential ramp (viridis — colour-vision-deficiency
- * safe, no red/green pairing) or a categorical palette.
+ * perceptually-ordered sequential ramp or a categorical palette.
  *
  * Accessibility: role=grid / row / gridcell with a roving tabindex, arrow-key
  * navigation, Enter/Space to select, and a tooltip that also opens on focus.
@@ -24,25 +23,54 @@ import {
   controlRodSummary,
   inventoryByType,
   typeName,
+  layerPrecision,
   esc,
   fmt,
 } from './state.js';
 
 /* -------------------------------------------------------------- colour ramp */
 
-// viridis anchors (perceptually uniform, monotonic in lightness)
-const VIRIDIS = [
-  [68, 1, 84], [72, 40, 120], [62, 74, 137], [49, 104, 142], [38, 130, 142],
-  [31, 158, 137], [53, 183, 121], [109, 205, 89], [180, 222, 44], [253, 231, 37],
+/* Sequential ramp: LIGHT = LOW value, DARK = HIGH value, so a higher magnitude
+ * always carries more visual weight and the map reads the same way as the
+ * standalone HTML report (report.py uses the same hue spine).
+ *
+ * Both sets were generated in OKLCH from that spine and verified:
+ *   - monotonic in OKLab lightness (so "darker" is never ambiguous)
+ *   - monotonic in printed greyscale — min adjacent step 19.4/255 (light),
+ *     14.5/255 (dark), so the map survives a mono printer
+ *   - ordering preserved under protanopia, deuteranopia and tritanopia
+ *     (Machado-Oliveira-Fernandes 2009, severity 1.0)
+ *
+ * The dark set is re-anchored in lightness (L 0.905 -> 0.470) rather than
+ * reused: the light set's darkest step sits at 1.57:1 against the dark panel,
+ * i.e. invisible. Re-anchored it is 2.42:1 and still clearly a filled cell.
+ */
+const RAMP_LIGHT = [
+  [247, 244, 236], [236, 218, 181], [225, 190, 129], [216, 160, 89], [204, 129, 67],
+  [187, 100, 50], [162, 76, 44], [133, 58, 44], [100, 45, 39],
+];
+const RAMP_DARK = [
+  [226, 223, 216], [221, 204, 170], [216, 184, 126], [213, 160, 93], [208, 135, 78],
+  [197, 113, 67], [179, 96, 65], [156, 82, 67], [129, 73, 66],
 ];
 
-export function viridis(t) {
+/** True when the document is actually painting the dark token set. */
+export function isDarkTheme() {
+  const forced = document.documentElement.getAttribute('data-theme');
+  if (forced === 'dark') return true;
+  if (forced === 'light') return false;
+  return typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+/** Sequential fill. t = 0 is the low end (light), t = 1 the high end (dark). */
+export function sequential(t) {
+  const ramp = isDarkTheme() ? RAMP_DARK : RAMP_LIGHT;
   const x = Math.min(1, Math.max(0, Number.isFinite(t) ? t : 0));
-  const pos = x * (VIRIDIS.length - 1);
-  const i = Math.min(VIRIDIS.length - 2, Math.floor(pos));
+  const pos = x * (ramp.length - 1);
+  const i = Math.min(ramp.length - 2, Math.floor(pos));
   const f = pos - i;
-  const a = VIRIDIS[i];
-  const b = VIRIDIS[i + 1];
+  const a = ramp[i];
+  const b = ramp[i + 1];
   const c = [0, 1, 2].map((k) => Math.round(a[k] + (b[k] - a[k]) * f));
   return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
@@ -68,33 +96,39 @@ function rgbParts(color) {
   return [128, 128, 128];
 }
 
-/** Pick near-black or near-white text for legibility on `color`. */
-export function textOn(color) {
+function relLuminance(color) {
   const [r, g, b] = rgbParts(color);
   const lin = (c) => {
     const s = c / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
   };
-  const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-  return L > 0.42 ? '#10161d' : '#f4f8fb';
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+/* Data tiles carry maximal-contrast ink. Picking whichever of the two actually
+ * contrasts more is the only correct rule — a fixed luminance threshold puts
+ * the crossover in the wrong place. (The previous threshold of 0.42 was more
+ * than twice the correct crossover of 0.188 for its ink pair, which dropped
+ * mid-ramp labels to 2.1:1.) Choosing best-of-two over pure black/white gives a
+ * worst case of 4.98:1 on the light ramp, 4.67:1 on the dark ramp and 4.85:1 on
+ * the categorical palette — AA on every step of every scale. */
+const INK_DARK = '#000000';
+const INK_LIGHT = '#ffffff';
+
+export function textOn(color) {
+  const L = relLuminance(color);
+  const onDark = (L + 0.05) / 0.05; // contrast with pure black
+  const onLight = 1.05 / (L + 0.05); // contrast with pure white
+  return onDark >= onLight ? INK_DARK : INK_LIGHT;
 }
 
 /* --------------------------------------------------------------- formatting */
 
-function cellNumber(v) {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return '';
-  const a = Math.abs(v);
-  if (a >= 1000) return v.toFixed(0);
-  if (a >= 100) return v.toFixed(1);
-  if (a >= 10) return v.toFixed(2);
-  return v.toFixed(3);
-}
-
-function cellText(v, asInteger = false) {
+function cellText(v, digits) {
   if (v === null || v === undefined) return '';
   if (typeof v === 'string') return v;
-  if (asInteger) return Number.isFinite(v) ? String(Math.round(v)) : '';
-  return cellNumber(v);
+  if (!Number.isFinite(v)) return '';
+  return v.toFixed(digits);
 }
 
 /* ------------------------------------------------------------------ palette */
@@ -125,7 +159,8 @@ export function buildScale(layer, values) {
   return {
     kind: 'sequential',
     domain: [lo, hi],
-    fill: (v) => (typeof v === 'number' && Number.isFinite(v) ? viridis((v - lo) / span) : null),
+    digits: layerPrecision(values),
+    fill: (v) => (typeof v === 'number' && Number.isFinite(v) ? sequential((v - lo) / span) : null),
     legend: { kind: 'sequential', domain: [lo, hi] },
   };
 }
@@ -197,11 +232,23 @@ export function renderCoreMap() {
   const W = HEAD_W + n * CELL + PAD;
   const H = HEAD_H + n * CELL + PAD;
 
-  // How big is one cell on screen? Drives text visibility.
-  const boxW = hostEl.clientWidth || 720;
+  /* How big is one cell on screen? That decides how much text fits.
+   * The site label is the survivor: it identifies the position, and the value
+   * is still one hover (or the inspector) away. Below ~15 px a cell is a pure
+   * colour field and any glyph would be noise. */
+  const boxW = hostEl.clientWidth || 640;
   const pxCell = (boxW / W) * CELL;
-  const showValue = pxCell >= 25;
-  const showLabel = pxCell >= 40;
+  const showLabel = pxCell >= 15;
+  const showValue = pxCell >= 26;
+  // Tighter decimals on small cells so "1.23" fits where "1.234" would not.
+  const digits = scale.digits === undefined ? 3 : (pxCell < 34 ? Math.max(0, scale.digits - 1) : scale.digits);
+
+  // Hatching every symmetry-expanded position stripes three quarters of a
+  // quarter-core map. Mark the minority instead: whichever set is smaller is
+  // the one worth finding.
+  const nExpanded = asms.reduce((a, x) => a + (x.printed === false ? 1 : 0), 0);
+  const markExpanded = nExpanded > 0 && nExpanded <= asms.length / 2;
+  const markCalculated = nExpanded > asms.length / 2;
 
   const active = pickActive(asms, mask);
   const parts = [];
@@ -249,10 +296,12 @@ export function renderCoreMap() {
       const dimmed = !mask[i];
       const selected = state.selection === i;
       const flagged = sym.has(`${r},${c}`);
-      const fillAttr = fill ? `fill="${fill}"` : 'class="no-data"';
       const fg = fill ? textOn(fill) : 'var(--text)';
       const label = a.site || a.label || a.serial || '';
-      const valueStr = cellText(v, layer && layer.kind === 'category');
+      const valueStr =
+        layer && layer.kind === 'category'
+          ? cellText(v, 0)
+          : cellText(v, digits);
 
       const cls = [
         'cell',
@@ -275,26 +324,35 @@ export function renderCoreMap() {
         `<rect class="cell-bg${fill ? '' : ' no-data'}" x="${x + PAD}" y="${y + PAD}" ` +
           `width="${CELL - 2 * PAD}" height="${CELL - 2 * PAD}" rx="5" ${fill ? `fill="${fill}"` : ''}/>`
       );
-      if (a.printed === false) {
+      if (markExpanded && a.printed === false) {
         parts.push(
           `<rect class="cell-hatch" x="${x + PAD}" y="${y + PAD}" width="${CELL - 2 * PAD}" ` +
             `height="${CELL - 2 * PAD}" rx="5" fill="url(#s3-hatch)" style="color:${fg}"/>`
         );
       }
-      if (flagged) {
+      if (markCalculated && a.printed !== false) {
         parts.push(
-          `<path class="cell-flag" d="M${x + CELL - PAD - 26} ${y + PAD}h26v26z"/>`
+          `<rect class="cell-calc" x="${x + PAD + 3}" y="${y + PAD + 3}" ` +
+            `width="${CELL - 2 * PAD - 6}" height="${CELL - 2 * PAD - 6}" rx="3" style="color:${fg}"/>`
         );
       }
+      if (flagged) {
+        // Outlined in the cell's own ink so it stays visible on the dark end
+        // of the ramp, where a bare --err triangle drops to 1.6:1.
+        parts.push(
+          `<path class="cell-flag" stroke="${fg}" d="M${x + CELL - PAD - 30} ${y + PAD}h30v30z"/>`
+        );
+      }
+      const twoLine = showValue && valueStr && showLabel && label;
       if (showLabel && label) {
         parts.push(
-          `<text class="cell-label" x="${x + CELL / 2}" y="${y + 34}" text-anchor="middle" ` +
-            `fill="${fg}">${esc(label)}</text>`
+          `<text class="cell-label${twoLine ? '' : ' is-solo'}" x="${x + CELL / 2}" ` +
+            `y="${twoLine ? y + 42 : y + 60}" text-anchor="middle" fill="${fg}">${esc(label)}</text>`
         );
       }
       if (showValue && valueStr) {
         parts.push(
-          `<text class="cell-value" x="${x + CELL / 2}" y="${showLabel ? y + 70 : y + 58}" ` +
+          `<text class="cell-value" x="${x + CELL / 2}" y="${twoLine ? y + 76 : y + 60}" ` +
             `text-anchor="middle" fill="${fg}">${esc(valueStr)}</text>`
         );
       }
@@ -356,9 +414,17 @@ function renderCrdMap(layer) {
   const lo = ex ? Math.min(ex[0], 0) : 0;
   const hi = ex ? Math.max(ex[1], full || ex[1]) : full || 1;
 
+  // All-rods-out is the common case in these listings, and tiling the word
+  // "OUT" across 225 identical cells is a screenful of no information. Show
+  // the drive LAYOUT compactly instead, and let the banner carry the state.
+  if (sum.aro) {
+    renderAroSchematic(layer, sum, rMin, rMax, cMin, cMax);
+    return;
+  }
+
   const W = HEAD_W + nC * CELL + PAD;
   const H = HEAD_H + nR * CELL + PAD;
-  const pxCell = ((hostEl.clientWidth || 720) / W) * CELL;
+  const pxCell = ((hostEl.clientWidth || 640) / W) * CELL;
   const showText = pxCell >= 25;
 
   const parts = [];
@@ -397,7 +463,10 @@ function renderCrdMap(layer) {
       }
 
       const steps = isIn ? insMap.get(key) : null;
-      const fill = isIn ? viridis(1 - (steps - lo) / (hi - lo || 1)) : null;
+      // Inverted on purpose: the plotted number is the WITHDRAWAL position, so
+      // a smaller number is a more deeply inserted rod. Darker still means
+      // "more" — more insertion, which is the physically significant end.
+      const fill = isIn ? sequential(1 - (steps - lo) / (hi - lo || 1)) : null;
       const fg = fill ? textOn(fill) : 'var(--crd-out-text)';
       const label = isIn ? cellNumber(steps) : 'OUT';
       const aria = isIn
@@ -431,25 +500,75 @@ function renderCrdMap(layer) {
   swapContent(parts.join(''));
 
   if (!legendEl) return;
-  const bits = [];
-  if (full !== null) bits.push(`full withdrawal = ${fmt(full, 2)} steps`);
-  if (Number.isFinite(cr.totalWithdrawn)) bits.push(`total withdrawn ${cr.totalWithdrawn} steps`);
   legendEl.innerHTML =
     `<div class="legend-title">${esc(layer.label)} <span class="legend-unit">drive positions</span></div>` +
-    (sum.aro
-      ? `<div class="crd-banner"><span class="crd-aro">ARO</span>` +
-        `<span>All rods withdrawn — every one of the ${sum.withdrawn.length} drive positions is fully out.</span></div>`
-      : `<div class="legend-bar" style="background:linear-gradient(90deg,${viridis(1)},${viridis(0)})"></div>` +
-        `<div class="legend-scale"><span>${esc(fmt(lo, 3))} steps (in)</span>` +
-        `<span>${esc(fmt(hi, 3))} steps (out)</span></div>`) +
+    `<div class="legend-bar" style="background:linear-gradient(90deg,${sequential(1)},${sequential(0)})"></div>` +
+    `<div class="legend-scale"><span>${esc(fmt(lo, 2))} steps — deepest insertion</span>` +
+    `<span>${esc(fmt(hi, 2))} steps — fully out</span></div>` +
     `<div class="legend-swatches"><span class="swatch"><i class="swatch-out"></i>OUT — fully withdrawn</span>` +
-    (sum.inserted.length
-      ? `<span class="swatch"><i style="background:${viridis(0.35)}"></i>inserted, value = steps</span>`
-      : '') +
+    `<span class="swatch"><i style="background:${sequential(0.72)}"></i>inserted · cell value = withdrawal steps</span>` +
     `</div>` +
+    crdFoot(cr, sum);
+}
+
+function crdFoot(cr, sum) {
+  const bits = [];
+  if (Number.isFinite(cr.fullWithdrawalSteps)) {
+    bits.push(`full withdrawal = ${fmt(cr.fullWithdrawalSteps, 2)} steps`);
+  }
+  if (Number.isFinite(cr.totalWithdrawn)) bits.push(`total withdrawn ${cr.totalWithdrawn} steps`);
+  return (
     `<div class="legend-foot">${esc(sum.label)}${bits.length ? ` · ${esc(bits.join(' · '))}` : ''}` +
     (cr.note ? `<div class="legend-note">${esc(cr.note)}</div>` : '') +
+    `</div>`
+  );
+}
+
+/** All-rods-out: a compact map of WHERE the drives are, not 225 "OUT" tiles. */
+function renderAroSchematic(layer, sum, rMin, rMax, cMin, cMax) {
+  const cr = sum.cr;
+  const out = new Set(sum.withdrawn.map((d) => `${d.row},${d.col}`));
+  const nR = rMax - rMin + 1;
+  const nC = cMax - cMin + 1;
+  const S = 22; // schematic pitch, user units
+  const W = nC * S + 8;
+  const H = nR * S + 8;
+
+  const dots = [];
+  for (let r = rMin; r <= rMax; r += 1) {
+    for (let c = cMin; c <= cMax; c += 1) {
+      const cx = 4 + (c - cMin) * S + S / 2;
+      const cy = 4 + (r - rMin) * S + S / 2;
+      if (out.has(`${r},${c}`)) {
+        dots.push(`<circle class="crd-dot" cx="${cx}" cy="${cy}" r="${S * 0.3}"/>`);
+      } else {
+        dots.push(`<circle class="crd-dot is-none" cx="${cx}" cy="${cy}" r="${S * 0.12}"/>`);
+      }
+    }
+  }
+
+  hostEl.innerHTML =
+    `<div class="aro-block">` +
+    `<div class="crd-banner"><span class="crd-aro">ARO</span>` +
+    `<span>All rods withdrawn — every one of the ${sum.withdrawn.length} drive positions ` +
+    `is fully out at this state point. No rod is inserted, so there is no insertion ` +
+    `pattern to map.</span></div>` +
+    `<svg class="crd-schematic" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" ` +
+    `role="img" aria-label="Control rod drive layout, ${nR} by ${nC}, ` +
+    `${sum.withdrawn.length} drive positions, all fully withdrawn">` +
+    `<title>Control-rod drive layout — all ${sum.withdrawn.length} positions withdrawn</title>` +
+    dots.join('') +
+    `</svg>` +
+    `<div class="aro-cap">Drive layout · ${nR}×${nC} grid · filled marks are drive ` +
+    `positions. Control-rod coordinates are their own grid — they do not align ` +
+    `with the assembly map.</div>` +
     `</div>`;
+
+  if (legendEl) {
+    legendEl.innerHTML =
+      `<div class="legend-title">${esc(layer.label)} <span class="legend-unit">drive positions</span></div>` +
+      crdFoot(cr, sum);
+  }
 }
 
 function pickActive(asms, mask) {
@@ -474,14 +593,17 @@ function renderLegend(layer, scale, values) {
   if (scale.kind === 'sequential') {
     const [lo, hi] = scale.domain;
     const stops = [];
-    for (let i = 0; i <= 10; i += 1) stops.push(`${viridis(i / 10)} ${i * 10}%`);
+    for (let i = 0; i <= 10; i += 1) stops.push(`${sequential(i / 10)} ${i * 10}%`);
     const mid = (lo + hi) / 2;
+    const d = scale.digits === undefined ? 3 : scale.digits;
     legendEl.innerHTML =
-      `<div class="legend-title">${esc(layer.label)}${unit}</div>` +
+      `<div class="legend-title">${esc(layer.label)}${unit}` +
+      `<span class="legend-dir">light = low · dark = high</span></div>` +
       `<div class="legend-bar" style="background:linear-gradient(90deg,${stops.join(',')})"></div>` +
-      `<div class="legend-scale"><span>${esc(fmt(lo, 4))}</span><span>${esc(fmt(mid, 4))}</span>` +
-      `<span>${esc(fmt(hi, 4))}</span></div>` +
-      `<div class="legend-foot">${withData} of ${values.length} positions carry a value` +
+      `<div class="legend-scale"><span>${esc(fmt(lo, d))}</span><span>${esc(fmt(mid, d))}</span>` +
+      `<span>${esc(fmt(hi, d))}</span></div>` +
+      `<div class="legend-foot">Observed range across ${withData} of ${values.length} positions` +
+      `${layer.basis ? ` · ${esc(layer.basis)}` : ''}` +
       legendMarks() +
       `</div>`;
     return;
@@ -521,11 +643,19 @@ function renderLegend(layer, scale, values) {
 
 function legendMarks() {
   const p = state.payload;
-  const hasUnprinted = (p.assemblies || []).some((a) => a.printed === false);
+  const asms = p.assemblies || [];
+  const nExpanded = asms.reduce((a, x) => a + (x.printed === false ? 1 : 0), 0);
   const hasFlags = (p.symmetryGroups || []).length > 0;
   const bits = [];
   if (hasFlags) bits.push('<span class="mark mark-flag"></span>symmetry-flagged');
-  if (hasUnprinted) bits.push('<span class="mark mark-hatch"></span>symmetry-expanded (not printed)');
+  if (nExpanded > 0 && nExpanded <= asms.length / 2) {
+    bits.push(`<span class="mark mark-hatch"></span>${nExpanded} symmetry-expanded (not printed)`);
+  } else if (nExpanded > asms.length / 2) {
+    bits.push(
+      `<span class="mark mark-calc"></span>${asms.length - nExpanded} printed — the calculated ` +
+        `quadrant; the rest is symmetry expansion`
+    );
+  }
   return bits.length ? ` <span class="legend-marks">${bits.join('<span class="sep">·</span>')}</span>` : '';
 }
 
@@ -668,7 +798,12 @@ function crdTooltipHtml(key) {
   );
 }
 
-/** Full hover card: identity, every value at this step, and diagnostics. */
+/** Compact hover card.
+ *
+ * A hover card answers "what am I pointing at?" in one glance. The full
+ * breakdown — every code at this step, the symmetry group, the type record —
+ * is what click-to-select already puts in the Inspector, so repeating it here
+ * only produced a 350 px wall that covered the map it described. */
 export function tooltipHtml(idx) {
   const p = state.payload;
   const a = p.assemblies[idx];
@@ -678,56 +813,56 @@ export function tooltipHtml(idx) {
   const layer = currentLayer();
 
   const invRow = inventoryByType(p).get(a.fuelType) || null;
+  const enrich =
+    a.enrichment !== null && a.enrichment !== undefined
+      ? a.enrichment
+      : invRow && Number.isFinite(invRow.enrichment)
+      ? invRow.enrichment
+      : null;
+
+  // The active layer's reading, given the headline slot.
+  let lead = '';
+  if (layer && sp) {
+    const v = layer.kind === 'category'
+      ? (layer.id === '__fueltype__' ? a.fuelType : a.batch)
+      : ((sp.values || {})[layer.id] || [])[idx];
+    const shown =
+      v === null || v === undefined
+        ? '—'
+        : typeof v === 'string'
+        ? v
+        : fmt(v, layer.kind === 'category' ? 0 : 4);
+    lead =
+      `<div class="tt-lead"><span class="tt-lead-v">${esc(shown)}</span>` +
+      `<span class="tt-lead-k">${esc(layer.label)}${layer.unit ? ` (${esc(layer.unit)})` : ''}` +
+      `${sp ? ` · step ${sp.step}` : ''}</span></div>`;
+  }
+
   const idRows = [
-    ['Position', `(${a.row}, ${a.col})`],
-    ['Site', a.site],
-    ['Serial', a.serial],
-    ['Label', a.label],
-    ['Fuel type', a.fuelType],
-    ['Type name', typeName(a.fuelType, p)],
+    ['Position', `row ${a.row}, col ${a.col}`],
+    ['Type', a.fuelType === null || a.fuelType === undefined
+      ? null
+      : `${a.fuelType}${typeName(a.fuelType, p) ? ` · ${typeName(a.fuelType, p)}` : ''}`],
     ['Batch', a.batch],
-    [
-      'Enrichment',
-      a.enrichment !== null && a.enrichment !== undefined
-        ? `${fmt(a.enrichment, 3)} w/o`
-        : invRow && Number.isFinite(invRow.enrichment)
-        ? `${fmt(invRow.enrichment, 3)} w/o`
-        : null,
-    ],
+    ['Enrichment', enrich === null ? null : `${fmt(enrich, 3)} w/o`],
     ['BP rods', a.bpRods],
-    ['Rotation', a.rotation],
   ]
     .filter(([, v]) => v !== null && v !== undefined && v !== '')
     .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`)
     .join('');
 
-  let valueRows = '';
-  if (sp && sp.values) {
-    valueRows = Object.keys(sp.values)
-      .map((code) => {
-        const arr = sp.values[code] || [];
-        const v = idx < arr.length ? arr[idx] : null;
-        const on = layer && layer.id === code ? ' class="is-active"' : '';
-        return `<tr${on}><th>${esc(code)}</th><td>${v === null || v === undefined ? '—' : esc(
-          typeof v === 'string' ? v : fmt(v, 4)
-        )}</td></tr>`;
-      })
-      .join('');
-  }
-
   const notes = [];
-  if (a.printed === false) notes.push('Filled by symmetry expansion — not printed in the listing.');
+  if (a.printed === false) notes.push('Symmetry expansion — not printed in the listing.');
   for (const s of sym) {
-    notes.push(`Symmetry group <b>${esc(s.group)}</b> (${esc(s.tag)}) — fails symmetry check.`);
+    notes.push(`Symmetry group <b>${esc(s.group)}</b> (${esc(s.tag)}) fails the check.`);
   }
 
   return (
     `<div class="tt-head">${esc(a.site || a.label || `(${a.row}, ${a.col})`)}` +
     `<span class="tt-sub">${esc(a.serial || '')}</span></div>` +
+    lead +
     `<table class="tt-table">${idRows}</table>` +
-    (valueRows
-      ? `<div class="tt-sec">Step ${sp.step} values</div><table class="tt-table">${valueRows}</table>`
-      : '') +
-    (notes.length ? `<div class="tt-notes">${notes.map((n) => `<div>${n}</div>`).join('')}</div>` : '')
+    (notes.length ? `<div class="tt-notes">${notes.map((n) => `<div>${n}</div>`).join('')}</div>` : '') +
+    `<div class="tt-hint">Click for the full record</div>`
   );
 }
