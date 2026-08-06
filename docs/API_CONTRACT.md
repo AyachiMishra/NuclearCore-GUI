@@ -1,15 +1,30 @@
 # Payload & API contract
 
 The backend parses one SIMULATE-3 listing and returns a single JSON document.
-Real examples are checked in — **develop against them**:
 
-- `docs/sample_payload_case_002495.json` — APR1400, 17×17, quarter-core, **2D** (1 axial node), 31 steps, 8 symmetry violations
-- `docs/sample_payload_apr1400.c02.json` — APR1400, 17×17, quarter-core, 2D, 28 steps, 2 symmetry violations
-- `docs/sample_payload_9074.json` — BEAVRS, **15×15**, **full-core**, **3D (12 axial nodes)**, 32 steps, no `PRI.INP` maps, no `BAT.EDT`, extra `2KIN`/`2RR1` variables
+Generate a real example to develop against — listings are not committed here,
+so produce the payload from one of your own:
 
-These three differ on every axis that matters. If the UI hard-codes 17, assumes
-quarter-core, assumes a `FMAP` exists, or assumes axial data exists, it breaks on
-one of them.
+```bash
+python -c "import json,sys; sys.path.insert(0,'.'); from s3dash.parser import parse_file; json.dump(parse_file('sample_data/your_run.out').payload, open('docs/sample_payload.json','w'), indent=1)"
+```
+
+The parser was developed against three listings that differ on **every axis
+that matters**, and the UI is written to survive all of them:
+
+| | APR1400 (×2) | BEAVRS |
+|---|---|---|
+| Core width | 17×17 | **15×15** |
+| Fraction | quarter | **full** |
+| Axial | 2D (1 node) | **3D (12 nodes)** |
+| Exposure unit | `GWd/MT` | **`EFPD`** |
+| Extra variables | — | **`2KIN`, `2RR1`** |
+| `PRI.INP` maps | 4 | **none** |
+| `BAT.EDT` | yes | **none** |
+| `ERR.CHK` | SYMGRP | **none** |
+
+If the UI hard-codes 17, assumes quarter-core, assumes a `FMAP` exists, or
+assumes axial data exists, it breaks on one of them.
 
 ## Endpoints
 

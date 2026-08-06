@@ -83,9 +83,26 @@ export async function parseSample(name) {
 }
 
 export async function parseUpload(file) {
+  /* A snapshot carries no parser, but it does carry these listings. Picking
+   * one of them through the file browser is the obvious thing to try, so
+   * match it and serve the embedded copy instead of refusing. */
+  const wanted = String(file && file.name || '').toLowerCase();
+  const hit = __DATA.samples.find((s) => s.name.toLowerCase() === wanted);
+  if (hit) return { runId: hit.name, ...hit.payload };
+
+  const stem = wanted.replace(/\\.(out|txt|lis|log)$/, '');
+  const near = __DATA.samples.find(
+    (s) => s.name.toLowerCase().replace(/\\.(out|txt)$/, '') === stem
+  );
+  if (near) return { runId: near.name, ...near.payload };
+
+  const names = __DATA.samples.map((s) => s.name).join(', ');
   const err = new Error(
-    'This is a standalone snapshot — it has no parser, so it cannot open new files. ' +
-    'Run the dashboard (python -m s3dash) to load your own listings.'
+    `This is a standalone snapshot: it has the parsed results baked in, but not the `
+    + `parser itself, so it cannot read a listing it was not built with. `
+    + `Available here: ${names}. `
+    + `To open your own listings run the dashboard with "python -m s3dash", or build `
+    + `a new snapshot with "python -m s3dash.bundle your_run.out -o your_run.html".`
   );
   err.status = 501;
   throw err;

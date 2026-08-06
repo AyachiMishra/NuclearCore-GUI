@@ -5,3 +5,10 @@
 *.egg-info/
 .superpowers/
 output/
+
+# Plant data and anything derived from it stays local: these are SIMULATE-3
+# outputs for specific plant models, not ours to publish.
+sample_data/
+docs/sample_payload_*.json
+output/
+.claude/settings.local.json

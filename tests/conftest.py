@@ -2,6 +2,12 @@
 
 Parsing is ~0.15 s per file, but every test would otherwise re-read a 13k-line
 listing; session scope keeps the suite fast enough to run on every edit.
+
+The listings are not in the repository -- they are SIMULATE-3 output for
+specific plant models. Tests that need them skip with an explanation rather
+than failing, so a fresh clone still exercises everything that can be checked
+without plant data (roughly half the suite). Drop your own ``.out`` files into
+``sample_data/`` to run the rest; see the README.
 """
 
 from __future__ import annotations
@@ -27,9 +33,34 @@ CASES = {
     "beavrs": "9074.out",
 }
 
+_MISSING = "reference listing not present (see README: Running the tests)"
+
+
+def samples_available() -> bool:
+    return all((SAMPLES / name).is_file() for name in CASES.values())
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip listing-dependent tests when the listings are absent.
+
+    Detection is by fixture use, so a new test that asks for ``parsed`` (or a
+    per-file fixture) is covered automatically and cannot silently fail on a
+    fresh clone.
+    """
+    if samples_available():
+        return
+    needs_data = {"parsed", "apr", "apr_alt", "beavrs", "raw_lines", "reports", "bundled",
+                  "run_id"}
+    skip = pytest.mark.skip(reason=_MISSING)
+    for item in items:
+        if needs_data & set(getattr(item, "fixturenames", ())):
+            item.add_marker(skip)
+
 
 @pytest.fixture(scope="session")
 def parsed() -> dict:
+    if not samples_available():
+        pytest.skip(_MISSING)
     return {key: parse_file(SAMPLES / name) for key, name in CASES.items()}
 
 
@@ -51,6 +82,8 @@ def beavrs(parsed) -> object:
 @pytest.fixture(scope="session")
 def raw_lines() -> dict:
     """Untouched file lines, for asserting parsed values against the source."""
+    if not samples_available():
+        pytest.skip(_MISSING)
     out = {}
     for key, name in CASES.items():
         text = (SAMPLES / name).read_text(encoding="latin-1", errors="replace")

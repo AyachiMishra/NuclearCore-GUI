@@ -7,6 +7,18 @@ Upload a `.out` file and get an interactive core map, per-assembly inspection,
 depletion and axial charts, a symmetry/diagnostics review, and a navigable
 index of every section in the file with its original text one click away.
 
+![Core map](docs/img/core-map.svg)
+
+<p align="center">
+  <img src="docs/img/depletion.svg" alt="Depletion progression" width="62%">
+  <img src="docs/img/axial.svg" alt="Axial power profile" width="34%">
+</p>
+
+<sub>Rendered from a SIMULATE-3 run of
+[BEAVRS](https://crpg.mit.edu/research/benchmark-for-evaluation-and-validation-of-reactor-simulations),
+MIT's openly published benchmark: a 15×15 full-core 3D PWR. Regenerate with
+`python tools/make_readme_assets.py your_run.out`.</sub>
+
 ---
 
 ## Running it
@@ -19,19 +31,45 @@ python -m pip install -r requirements.txt
 python -m s3dash
 ```
 
-That starts the server on <http://127.0.0.1:8000> and opens a browser. Or run
-uvicorn directly:
+That starts the server on <http://127.0.0.1:8000> and opens a browser. Drop any
+`.out` file on the load panel — it parses server-side in well under a second
+for a typical 1 MB listing. Or run uvicorn directly:
 
 ```bash
 python -m uvicorn s3dash.web.app:app --port 8000
 ```
 
-Three example listings ship in `sample_data/` and load with one click, so the
-dashboard is usable before you upload anything.
-
 **No build step, no npm, no network.** The front end is vanilla ES modules and
 hand-written SVG; nothing is fetched from a CDN. It runs on an air-gapped
 machine exactly as it runs on a connected one.
+
+### Bringing your own listings
+
+**No `.out` files are committed here.** They are SIMULATE-3 output for specific
+plant models and are not ours to redistribute. Anything you drop into
+`sample_data/` appears as a one-click button on the load panel:
+
+```
+sample_data/
+  your_cycle1.out
+  your_cycle2.out
+```
+
+You never need to do that to use the tool — the upload button reads any file
+you point it at, whatever it is named.
+
+### Sharing a result
+
+To hand someone a finished analysis without asking them to install anything:
+
+```bash
+python -m s3dash.bundle your_run.out -o your_run.html
+```
+
+That writes one self-contained HTML file — the whole dashboard with the parsed
+results baked in, opening on a double-click with no Python and no network. It
+carries results, not the parser, so it cannot open *other* listings; for that,
+run the server.
 
 ---
 
@@ -144,9 +182,18 @@ independent extractor, disagreed. The most consequential:
 
 Full findings in `verify/VERIFICATION_REPORT.md`.
 
+### Running the tests
+
 ```bash
 python -m pytest tests/ -q
 ```
+
+Tests that need a real listing skip when none is present, so a fresh clone
+runs **68 tests** covering the layout primitives, the column arithmetic,
+geometry resolution, symmetry expansion (rotational, mirror and octant) and
+report escaping — the parts that fail silently rather than loudly. Put listings
+in `sample_data/` to unlock the other 126, which check parsed values against
+figures each file states about itself.
 
 ### Checking a file the parser has never seen
 

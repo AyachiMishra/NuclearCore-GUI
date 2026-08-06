@@ -15,9 +15,14 @@ import subprocess
 import pytest
 
 from s3dash.bundle import build
-from tests.conftest import SAMPLES
+from tests.conftest import SAMPLES, samples_available
 
 CODE_BLOCK_RE = re.compile(r"<script>(.*?)</script>", re.S)
+
+pytestmark = pytest.mark.skipif(
+    not samples_available(),
+    reason="bundling needs a listing to embed (see README)",
+)
 
 
 @pytest.fixture(scope="module")

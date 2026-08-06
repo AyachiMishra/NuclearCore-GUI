@@ -10,7 +10,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from s3dash.web.app import app
-from tests.conftest import SAMPLES
+from tests.conftest import SAMPLES, samples_available
+
+# These exercise the upload and sample-listing endpoints against real
+# listings, which are not in the repository.
+needs_listings = pytest.mark.skipif(
+    not samples_available(), reason="reference listing not present (see README)"
+)
 
 
 @pytest.fixture(scope="module")
@@ -26,6 +32,7 @@ def run_id(client) -> str:
 
 
 class TestParse:
+    @needs_listings
     def test_upload_returns_full_payload(self, client):
         data = (SAMPLES / "9074.out").read_bytes()
         resp = client.post(
@@ -58,9 +65,16 @@ class TestParse:
 
 
 class TestSamples:
+    @needs_listings
     def test_samples_are_listed(self, client):
         names = {s["name"] for s in client.get("/api/samples").json()["samples"]}
         assert {"case_002495.out", "apr1400.c02.out", "9074.out"} <= names
+
+    def test_samples_endpoint_is_well_formed_when_empty(self, client):
+        """A deployment with no bundled listings must return an empty list,
+        not an error -- the front end builds its sample buttons from this."""
+        body = client.get("/api/samples").json()
+        assert isinstance(body.get("samples"), list)
 
     def test_unknown_sample_is_404(self, client):
         assert client.post("/api/samples/nope.out").status_code == 404
