@@ -198,6 +198,18 @@ class TestKeyValues:
         assert kv.entries["K-effective"]["value"] == 1.14074
         assert "Hydraulic Iterations K-effective" not in kv.entries
 
+    def test_a_label_containing_a_colon_is_captured_whole(self):
+        """Excluding ':' makes the match restart inside the parenthesis and
+        publish the fragment "D-ACTUAL)" as if it were its own quantity."""
+        line = [
+            " Inlet Subcooling (PRMEAS) .SUBCOL   82.17 kcal/kg 147.90 Btu/lb"
+            "           Buckling (2D-USED:3D-ACTUAL). .  8.200E-05  CM-2"
+        ]
+        kv = parse_key_values(line, 0, 1)
+        assert kv.entries["Buckling (2D-USED:3D-ACTUAL)"]["value"] == 8.2e-05
+        assert kv.entries["Buckling (2D-USED:3D-ACTUAL)"]["unit"] == "CM-2"
+        assert not any(k.startswith("D-ACTUAL") for k in kv.entries)
+
 
 class TestTextUtil:
     def test_cuts_isolate_each_field(self):

@@ -458,8 +458,13 @@ def parse_ruled_table(lines: list[str], start: int, end: int, max_scan: int = 40
 # A label may contain single spaces but never a run of two or more -- that run
 # is column padding, and allowing it lets one entry swallow the entry to its
 # left (e.g. "Hydraulic Iterations" absorbing "K-effective").
+#
+# The label body admits ':' and '+' because real labels contain them, e.g.
+# "Buckling (2D-USED:3D-ACTUAL)". Excluding ':' makes the match restart inside
+# the parenthesis and capture the fragment "D-ACTUAL)" as if it were a
+# quantity of its own.
 _KV_RE = re.compile(
-    r"(?P<label>[A-Za-z][A-Za-z0-9()/%\-]*(?: [A-Za-z0-9()/%\-]+)*?)\s*\.\s*\.[\s.]*"
+    r"(?P<label>[A-Za-z][A-Za-z0-9()/%:+\-]*(?: [A-Za-z0-9()/%:+\-]+)*?)\s*\.\s*\.[\s.]*"
     r"(?P<code>[A-Z][A-Z0-9\-+]{1,8})?[ \t]*"
     r"(?P<value>-?\d[\d.,]*(?:[eE][+-]?\d+)?)"
     r"(?:[ \t]+(?P<unit>[A-Za-z%][A-Za-z0-9()/%*\-^]{0,14}(?:\([^)]*\))?))?"

@@ -55,16 +55,26 @@ class SegmentSpec:
     equivalent_assemblies: float | None = None
 
     def to_json(self) -> dict:
+        # Units come from the table's own column headers. They are emitted with
+        # the values so the UI never has to hard-code them -- and so a column
+        # is never shown unitless.
         return {
             "number": self.number,
             "name": self.name,
             "loading": self.loading,
+            "loadingUnit": "g/cc",
             "enrichment": self.enrichment,
+            "enrichmentUnit": "w/o U235",
             "plutonium": self.plutonium,
+            "plutoniumUnit": "wt%",
             "bpLoading": self.bp_loading,
+            "bpLoadingUnit": "g/cc",
             "bpRods": self.bp_rods,
             "bpRodsOriginal": self.bp_rods_original,
             "equivalentAssemblies": self.equivalent_assemblies,
+            # Height-weighted, not a headcount: an assembly whose active
+            # segment spans 351 of 381 cm contributes 351/381 of an assembly.
+            "equivalentAssembliesNote": "height-weighted",
         }
 
 

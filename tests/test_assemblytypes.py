@@ -131,6 +131,16 @@ class TestSegmentTable:
         assert no_bp["bpLoading"] is None
         assert no_bp["enrichment"] == pytest.approx(1.61)
 
+    def test_every_segment_quantity_carries_its_unit(self, parsed):
+        """A number shown without a unit is not usable by a physicist, so the
+        units travel with the values rather than being hard-coded in the UI."""
+        for key, result in parsed.items():
+            for seg in result.payload["segments"]:
+                assert seg["loadingUnit"] == "g/cc", key
+                assert seg["enrichmentUnit"] == "w/o U235", key
+                assert seg["bpLoadingUnit"] == "g/cc", key
+                assert seg["equivalentAssembliesNote"] == "height-weighted", key
+
     def test_segment_equivalents_total_the_core(self, parsed):
         for key, result in parsed.items():
             payload = result.payload
