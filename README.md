@@ -1,4 +1,4 @@
-# SIMULATE-3 Core Analysis Dashboard
+# SIMULATE-3 VISION:  Analysis Dashboard
 
 Load a SIMULATE-3 output listing and understand it without reading eleven
 thousand lines of fixed-width Fortran print.
