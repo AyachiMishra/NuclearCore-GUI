@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 
 from ..parser import BuildResult, parse_text
+from .report import render_report
 
 STATIC_DIR = Path(__file__).parent / "static"
 SAMPLE_DIR = Path(__file__).resolve().parents[2] / "sample_data"
@@ -179,6 +180,18 @@ async def export_csv(run_id: str, step: int = Query(0, ge=0)) -> StreamingRespon
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{name}.step{sp["step"]}.csv"'},
     )
+
+
+@app.get("/api/run/{run_id}/report.html")
+async def export_report(run_id: str, step: int = Query(0, ge=0), download: bool = True):
+    """Standalone, self-contained HTML report -- printable straight to PDF."""
+    result = _get(run_id)
+    html_doc = render_report(result.payload, step=step)
+    name = Path(result.payload["meta"]["fileName"] or "run").stem
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{name}.report.html"'
+    return HTMLResponse(html_doc, headers=headers)
 
 
 @app.get("/", response_class=HTMLResponse)
