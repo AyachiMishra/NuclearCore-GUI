@@ -192,9 +192,15 @@ def _parse_numeric_grid(lines: list[str], start: int, end: int) -> dict[tuple[in
 
 # ------------------------------------------------------------ segment table
 
+# Columns that do not apply to a segment are printed as a run of dashes
+# ("------"), not left blank -- a segment with no burnable poison shows dashes
+# for both PU and BP loading. Requiring digits there drops those segments
+# entirely, which quietly loses a large fraction of the core.
+_NUM_OR_DASH = r"(?:[\d.]+|-{2,})"
 _SEG_ROW_RE = re.compile(
-    r"^\s*(?P<num>\d+)\s+(?P<name>\S+)\s+(?P<loading>[\d.]+)\s+(?P<enr>[\d.]+)\s+"
-    r"(?P<pu>[\d.\-]+)\s+(?P<bp>[\d.]+)\s+(?P<n1>\d+)\s+(?P<n2>\d+)\s+(?P<eq>[\d.]+)"
+    rf"^\s*(?P<num>\d+)\s+(?P<name>\S+)\s+(?P<loading>{_NUM_OR_DASH})\s+"
+    rf"(?P<enr>{_NUM_OR_DASH})\s+(?P<pu>{_NUM_OR_DASH})\s+(?P<bp>{_NUM_OR_DASH})\s+"
+    r"(?P<n1>\d+)\s+(?P<n2>\d+)\s+(?P<eq>[\d.]+)"
 )
 
 
@@ -210,14 +216,13 @@ def parse_fueled_segments(lines: list[str], start: int, end: int) -> list[Segmen
         if num in seen:
             continue
         seen.add(num)
-        pu = as_float(m.group("pu"))
         out.append(
             SegmentSpec(
                 number=num,
                 name=m.group("name"),
                 loading=as_float(m.group("loading")),
                 enrichment=as_float(m.group("enr")),
-                plutonium=pu,
+                plutonium=as_float(m.group("pu")),
                 bp_loading=as_float(m.group("bp")),
                 bp_rods=int(m.group("n1")),
                 bp_rods_original=int(m.group("n2")),

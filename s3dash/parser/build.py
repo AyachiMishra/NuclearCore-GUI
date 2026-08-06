@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import controlrods, inputcards, primitives, sections
-from .document import Document, Section
+from . import assemblytypes, controlrods, inputcards, primitives, sections
+from .document import Document, Page, Section
 from .geometry import Geometry, expand_to_full_core, parse_geometry
 
 # Human-readable names and units for the edit codes seen in the wild. Unknown
@@ -129,10 +129,16 @@ def build(doc: Document) -> BuildResult:
     symgroups = _collect(doc, "err.chk", "SYMGRP", sections.parse_symmetry_groups, notes)
     depletion = _first(doc, "depletion", "Depletion Table", sections.parse_depletion_table, notes) or []
 
+    type_specs = (
+        _first(doc, "summary", "Assembly Descriptions", assemblytypes.parse_assembly_types, notes)
+        or []
+    )
     fmap = _merge_grid(doc, "FMAP", notes)
     cmap = _merge_grid(doc, "CMAP", notes)
 
-    state_points, order, assemblies = _build_state_points(doc, geom, fmap, cmap, deck, segments, notes)
+    state_points, order, assemblies = _build_state_points(
+        doc, geom, fmap, cmap, deck, segments, type_specs, notes
+    )
 
     timing = _timing(doc, notes)
 
@@ -146,8 +152,9 @@ def build(doc: Document) -> BuildResult:
         "depletion": depletion,
         "diagnostics": [d.to_json() for d in diagnostics],
         "symmetryGroups": [g.to_json() for g in symgroups],
-        "inventory": _inventory(assemblies, deck),
+        "inventory": _inventory(assemblies, deck, type_specs, segments),
         "segments": [s.to_json() for s in segments],
+        "assemblyTypes": [t.to_json() for t in type_specs],
         "inputDeck": deck.to_json(),
         "maps": {"fmap": fmap.to_json() if fmap else None, "cmap": cmap.to_json() if cmap else None},
         "navTree": _nav_tree(doc),
@@ -211,12 +218,16 @@ def _build_state_points(
     cmap: primitives.BorderedGrid | None,
     deck: inputcards.InputDeck,
     segments: list[inputcards.SegmentSpec],
+    type_specs: list[assemblytypes.AssemblyType],
     notes: list[str],
 ) -> tuple[list[dict], list[str], list[Assembly]]:
     """Group map/summary sections by (case, step) and emit aligned arrays."""
     buckets: dict[tuple[int, int], dict[str, primitives.BandedMap]] = {}
     extras: dict[tuple[int, int], dict] = {}
     var_order: list[str] = []
+    # Page carrying the state point's own report / maps -- see _state_page.
+    report_page: dict[tuple[int, int], Page] = {}
+    map_page: dict[tuple[int, int], Page] = {}
 
     for sec in doc.sections:
         key = (sec.case if sec.case is not None else 0, sec.step if sec.step is not None else 0)
@@ -230,11 +241,20 @@ def _build_state_points(
                 continue
             slot = buckets.setdefault(key, {})
             slot[sec.name] = slot[sec.name].merge(bm) if sec.name in slot else bm
+            map_page.setdefault(key, doc.page_for_line(sec.start))
             if sec.name not in var_order:
                 var_order.append(sec.name)
         elif sec.kind == "summary" and sec.name == "Output Summary":
             kv = primitives.parse_key_values(doc.lines, sec.start, sec.end)
-            extras.setdefault(key, {})["summary"] = kv.entries
+            entries = dict(kv.entries)
+            # The peak-power block has no dot leaders, so the generic scan
+            # misses it; merge it in without displacing a real entry.
+            for label, entry in sections.parse_summary_peaks(
+                doc.lines, sec.start, sec.end
+            ).items():
+                entries.setdefault(label, entry)
+            extras.setdefault(key, {})["summary"] = entries
+            report_page.setdefault(key, doc.page_for_line(sec.start))
         elif sec.kind == "axial":
             slot = extras.setdefault(key, {})
             tag = "axialState" if sec.name == "Axial State" else "axialDepletion"
@@ -248,7 +268,7 @@ def _build_state_points(
             if rods:
                 extras.setdefault(key, {})["controlRods"] = rods.to_json()
 
-    assemblies = _resolve_assemblies(geom, buckets, fmap, cmap, deck, segments)
+    assemblies = _resolve_assemblies(geom, buckets, fmap, cmap, deck, segments, type_specs)
     index = {(a.row, a.col): i for i, a in enumerate(assemblies)}
 
     page_ctx = {}
@@ -258,6 +278,7 @@ def _build_state_points(
 
     out: list[dict] = []
     for key in sorted(set(buckets) | set(extras)):
+        page = _state_page(key, report_page, map_page, page_ctx)
         case, step = key
         maps = buckets.get(key, {})
         values: dict[str, list] = {}
@@ -272,7 +293,6 @@ def _build_state_points(
                     arr[idx] = raw_full.get((r, c))
             values[code] = arr
 
-        page = page_ctx.get(key)
         extra = extras.get(key, {})
         summary = extra.get("summary", {})
         out.append(
@@ -298,6 +318,25 @@ def _build_state_points(
     return out, var_order, assemblies
 
 
+def _state_page(key, report_page: dict, map_page: dict, page_ctx: dict) -> Page | None:
+    """The page whose banner describes a state point's converged condition.
+
+    A ``(case, step)`` label appears on every page SIMULATE-3 prints while it
+    is working on that step, including the iteration pages of an exposure
+    search -- and the banner reports the *current* trial condition, not the
+    result. In ``case_002495`` step 30 the first such page says
+    ``25.050 GWd/MT`` while the converged step (its own Output Summary, its
+    maps, and the end-of-run depletion table) is ``24.112``. In ``9074``
+    the pre-run page says ``GWd/MT`` for a run whose cycle exposure is in
+    ``EFPD``.
+
+    Anchoring on the page that actually carries the state point's report
+    (falling back to its maps, then to any page with the label) takes the
+    banner that belongs with the numbers being shown.
+    """
+    return report_page.get(key) or map_page.get(key) or page_ctx.get(key)
+
+
 def _expand_raw(raw: dict[tuple[int, int], str], geom: Geometry) -> dict[tuple[int, int], str]:
     """Symmetry-expand a non-numeric map by reusing the numeric machinery."""
     keys = list(raw)
@@ -318,6 +357,7 @@ def _resolve_assemblies(
     cmap: primitives.BorderedGrid | None,
     deck: inputcards.InputDeck,
     segments: list[inputcards.SegmentSpec],
+    type_specs: list[assemblytypes.AssemblyType],
 ) -> list[Assembly]:
     """Determine which positions hold fuel, and everything known about each.
 
@@ -340,9 +380,20 @@ def _resolve_assemblies(
         for bm in maps.values():
             printed |= set(bm.raw)
 
-    seg_by_type = {s.number: s for s in segments}
-    enr_by_type = {n: s.enrichment for n, s in seg_by_type.items()}
-    bp_by_type = {n: s.bp_rods for n, s in seg_by_type.items()}
+    # FUE.TYP numbers and segment numbers are separate namespaces. They happen
+    # to coincide in some decks, so assuming identity looks fine until it
+    # silently attributes the wrong enrichment to most of the core. Use the
+    # mapping the listing states, falling back to identity only when the
+    # Assembly Physical Descriptions block is absent.
+    by_segment = {s.number: s for s in segments}
+    seg_of_type = assemblytypes.segment_for_type(type_specs)
+    enr_by_type: dict[int, float | None] = {}
+    bp_by_type: dict[int, int | None] = {}
+    for ftype in {t.fuel_type for t in type_specs} | set(by_segment):
+        seg = by_segment.get(seg_of_type.get(ftype, ftype))
+        if seg:
+            enr_by_type[ftype] = seg.enrichment
+            bp_by_type[ftype] = seg.bp_rods
     cmap_info = _cmap_lookup(cmap, geom)
 
     out: list[Assembly] = []
@@ -535,18 +586,44 @@ def _status(diags: list[sections.Diagnostic], groups: list[sections.SymmetryGrou
     }
 
 
-def _inventory(assemblies: list[Assembly], deck: inputcards.InputDeck) -> list[dict]:
-    """Assembly counts per fuel type, with batch labels where known."""
+def _inventory(
+    assemblies: list[Assembly],
+    deck: inputcards.InputDeck,
+    type_specs: list[assemblytypes.AssemblyType],
+    segments: list[inputcards.SegmentSpec],
+) -> list[dict]:
+    """Assembly counts per fuel type, resolved to segments where known.
+
+    Several fuel types can share one segment (burnable-poison variants of the
+    same design), so ``segment`` is not unique across rows -- consumers that
+    compare against the Fueled Segments table must aggregate by segment first.
+    """
     by_type: dict[int | None, int] = {}
     for a in assemblies:
         by_type[a.fuel_type] = by_type.get(a.fuel_type, 0) + 1
     batch_of_type = {b.fuel_type: b for b in deck.batches}
+    seg_of_type = assemblytypes.segment_for_type(type_specs)
+    name_of_type = {t.fuel_type: t.name for t in type_specs}
+    seg_names = {s.number: s.name for s in segments}
+    enr = {s.number: s.enrichment for s in segments}
+
     rows = []
     for ftype, count in sorted(by_type.items(), key=lambda kv: (kv[0] is None, kv[0])):
         batch = batch_of_type.get(ftype)
+        if seg_of_type:
+            # A stated mapping exists; a type missing from it is genuinely
+            # unmapped. Falling back to identity here would silently attribute
+            # assemblies to the wrong segment.
+            segment = seg_of_type.get(ftype)
+        else:
+            segment = ftype if ftype in seg_names else None
         rows.append(
             {
                 "fuelType": ftype,
+                "typeName": name_of_type.get(ftype),
+                "segment": segment,
+                "segmentName": seg_names.get(segment),
+                "enrichment": enr.get(segment),
                 "count": count,
                 "batchLabel": batch.label if batch else None,
                 "batchNumber": batch.batch_number if batch else None,
