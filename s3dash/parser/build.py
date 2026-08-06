@@ -9,6 +9,7 @@ array instead of rebuilding objects.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from . import assemblytypes, controlrods, inputcards, primitives, sections
@@ -60,10 +61,28 @@ _PREFIX_INFO = {
 }
 
 
-def describe_variable(code: str) -> dict:
-    """Split an edit code such as ``2EXP`` into prefix + variable metadata."""
+# SIMULATE-3 states an edit's unit in the section heading when it has one:
+# ``PRI.STA 2EXP  - Assembly 2D EXPOSURE  - GWD/T``. A unit token always
+# carries a solidus, which is what separates it from a trailing descriptive
+# word ("... - Relative Power Fraction", "... - K-infinity").
+_HEADING_UNIT_RE = re.compile(r"-\s*(?P<unit>[A-Za-z][A-Za-z0-9*\-^.]{0,7}/[A-Za-z0-9*\-^.]{1,8})\s*$")
+
+
+def describe_variable(code: str, heading: str | None = None) -> dict:
+    """Split an edit code such as ``2EXP`` into prefix + variable metadata.
+
+    ``heading`` is the section's own description line. When it names a unit,
+    that wins: the table below is a fallback for codes whose heading is
+    silent, never an override of what the listing actually printed. The two
+    can differ in spelling (``GWD/T`` vs ``GWd/MT``) and, for an unfamiliar
+    plant, in substance.
+    """
     prefix, stem = (code[0], code[1:]) if len(code) > 1 and code[0] in _PREFIX_INFO else ("", code)
     name, unit = _VARIABLE_INFO.get(stem, _VARIABLE_INFO.get(stem[:3], (stem, "")))
+    if heading:
+        m = _HEADING_UNIT_RE.search(heading.strip())
+        if m:
+            unit = m.group("unit")
     return {
         "code": code,
         "prefix": prefix,
@@ -409,13 +428,18 @@ def _resolve_assemblies(
                     a.fuel_type, a.rotation = _int(parts[0]), _int(parts[1])
                 elif len(parts) == 1:
                     a.rotation = _int(parts[0])
-        if a.fuel_type is None:
-            info = cmap_info.get((r, c))
-            if info:
+        # CMAP is consulted for EVERY position, not only the ones FMAP could
+        # not type. FMAP prints the fuel type inside the calculated quadrant
+        # and omits it outside, so keying off "type is still unknown" would
+        # give the calculated quadrant no batch number and its own rotational
+        # images one -- the same assembly described two different ways
+        # depending on which side of the core it sits on.
+        info = cmap_info.get((r, c))
+        if info:
+            if a.fuel_type is None:
                 a.fuel_type = info.get("type")
+            if a.batch is None:
                 a.batch = info.get("batch")
-                if info.get("enrichment") is not None:
-                    a.enrichment = info["enrichment"]
         if a.fuel_type is None and deck.fuel_type_grid:
             # The FUE.TYP matrix includes the reflector ring; offset by NREF.
             a.fuel_type = deck.fuel_type_grid.get((r + geom.nref, c + geom.nref))
@@ -423,6 +447,11 @@ def _resolve_assemblies(
             if a.enrichment is None:
                 a.enrichment = enr_by_type.get(a.fuel_type)
             a.bp_rods = bp_by_type.get(a.fuel_type)
+        if a.enrichment is None and info and info.get("enrichment") is not None:
+            # CMAP prints enrichment to 2dp; the segment table gives 5, so it
+            # is only a fallback -- using it first would leave symmetric
+            # positions disagreeing in the last three digits.
+            a.enrichment = info["enrichment"]
         if a.label is None:
             a.label = a.site
         out.append(a)
@@ -675,7 +704,11 @@ def _section_index(doc: Document) -> list[dict]:
             "start": s.start,
             "end": s.end,
             "lines": s.end - s.start,
-            "variable": describe_variable(s.name) if s.kind in {"pri.sta", "pin.edt"} else None,
+            "variable": (
+                describe_variable(s.name, s.label)
+                if s.kind in {"pri.sta", "pin.edt"}
+                else None
+            ),
         }
         for s in doc.sections
     ]

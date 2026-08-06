@@ -43,6 +43,8 @@ _DIAG_RE = re.compile(
     r"^\s*(?P<label>\S+(?:\s\S)?)\s+(?P<times>\d+)\s+"
     r"(?P<sev>ERROR|WARNING|CAUTION|NOTE)\s+(?P<where>\S+)\s+(?P<info>.*)$"
 )
+_DIAG_HDR_RE = re.compile(r"^\s*Label\s+Times\s+Degree\s+Where\s+Info\s*$")
+_SEVERITIES = {"ERROR", "WARNING", "CAUTION", "NOTE"}
 
 
 def parse_diagnostics(lines: list[str], start: int, end: int) -> list[Diagnostic]:
@@ -52,29 +54,61 @@ def parse_diagnostics(lines: list[str], start: int, end: int) -> list[Diagnostic
     messages are printed many times, but each appears here once with its
     occurrence count. Duplicate rows (some builds echo the block twice) are
     collapsed on the full row identity.
+
+    Columns are taken from the dashed rule under the heading rather than from
+    whitespace, because both the label and the *Where* field legitimately
+    contain a space (``SYMGRP F``, ``RES STEP``) and are wider than the dash
+    group above them. Splitting on whitespace silently moves half of *Where*
+    into *Info*.
     """
+    cuts = _diag_columns(lines, start, end)
     seen: set[tuple] = set()
     out: list[Diagnostic] = []
     for i in range(start, end):
-        m = _DIAG_RE.match(lines[i])
-        if not m:
+        fields = _diag_fields(lines[i], cuts)
+        if fields is None:
             continue
-        key = (m.group("label"), m.group("times"), m.group("sev"), m.group("where"))
+        label, times, sev, where, info = fields
+        key = (label, times, sev, where, info)
         if key in seen:
             continue
         seen.add(key)
         out.append(
-            Diagnostic(
-                label=m.group("label").strip(),
-                times=int(m.group("times")),
-                severity=m.group("sev"),
-                where=m.group("where").strip(),
-                info=m.group("info").strip(),
-                line=i,
-            )
+            Diagnostic(label=label, times=times, severity=sev, where=where, info=info, line=i)
         )
     out.sort(key=lambda d: (-_SEVERITY_ORDER.get(d.severity, 0), d.label))
     return out
+
+
+def _diag_columns(lines: list[str], start: int, end: int) -> list[int] | None:
+    """Column start positions from the ``----- ----- ...`` rule, if present."""
+    for i in range(start, end):
+        if not _DIAG_HDR_RE.match(lines[i]) or i + 1 >= end:
+            continue
+        starts = [m.start() for m in re.finditer(r"-+", lines[i + 1])]
+        if len(starts) >= 5:
+            return [0] + starts[1:5]
+    return None
+
+
+def _diag_fields(line: str, cuts: list[int] | None) -> tuple[str, int, str, str, str] | None:
+    """Split one roll-up row, preferring fixed columns over whitespace."""
+    if cuts:
+        edges = cuts + [len(line)]
+        parts = [line[edges[k] : edges[k + 1]].strip() for k in range(5)]
+        if parts[2] in _SEVERITIES and parts[1].isdigit() and parts[0]:
+            return parts[0], int(parts[1]), parts[2], parts[3], parts[4]
+        return None
+    m = _DIAG_RE.match(line)
+    if not m:
+        return None
+    return (
+        m.group("label").strip(),
+        int(m.group("times")),
+        m.group("sev"),
+        m.group("where").strip(),
+        m.group("info").strip(),
+    )
 
 
 def overall_status(diags: list[Diagnostic]) -> str:
@@ -142,92 +176,117 @@ class SymmetryGroup:
 
 
 _SYM_WARN_RE = re.compile(r"\*\*\s*\((?:Warning|Error)\)\s*-\s*SYMGRP\s+(?P<grp>\S+)\s*-\s*(?P<msg>.+)$")
-_SYM_TAG_RE = re.compile(r"^\s*([A-Z]\d)\s*$")
-_SYM_HEAD_RE = re.compile(r"\|\s*\(\s*(?P<row>\d+),\s*(?P<col>\d+)\)\s*=\s*(?P<label>\S+?)\s*\|")
-_SYM_KV_RE = re.compile(r"\|\s*(?P<key>FUE\.ROT|FUE\.TYP|AVE EXP)\s*=\s*(?P<val>[-\d.]+)\s*\|")
-_SYM_PAIR_RE = re.compile(r"\|\s*(?P<a>[-\d.]+)\s+(?P<b>[-\d.]+)\s*\|")
+_SYM_BOX_RE = re.compile(r"\|([^|]*)\|")
+_SYM_HEAD_RE = re.compile(r"^\(\s*(?P<row>\d+),\s*(?P<col>\d+)\)\s*=\s*(?P<label>\S+)$")
+_SYM_KV_RE = re.compile(r"^(?P<key>FUE\.ROT|FUE\.TYP|AVE EXP)\s*=\s*(?P<val>[-\d.]+)$")
+_SYM_PAIR_RE = re.compile(r"^(?P<a>[-\d.]+)\s+(?P<b>[-\d.]+)$")
+_SYM_TAG_RE = re.compile(r"^[A-Z]\d$")
 
 
 def parse_symmetry_groups(lines: list[str], start: int, end: int) -> list[SymmetryGroup]:
     """Parse ``ERR.CHK - SYMGRP`` violation blocks.
 
-    Each block prints two or three assembly "cards" laid out diagonally across
-    the page, one per symmetric position, with the 2x2 sub-assembly exposures,
-    fuel type, rotation and average exposure. Cards are matched by their
-    ``(row,col)=LABEL`` header line and the tag printed above them.
+    Each block prints two or three assembly "cards", one per symmetric
+    position, carrying the 2x2 sub-assembly exposures, fuel type, rotation and
+    average exposure. The cards are placed at the page column that mirrors the
+    assembly's position in the core, so **two cards routinely share the same
+    lines**::
+
+        F1                                F2
+        |( 9, 4)=C-03  |                  |( 9,14)=R-15  |
+        |12.778   7.901|                  |12.778  17.735|
+
+    Reading only the first ``|...|`` on each line loses the right-hand card
+    entirely. Every box on a line is therefore collected with its column
+    centre and routed to the card that occupies that column; the tag line
+    above is matched to its card the same way.
     """
     groups: list[SymmetryGroup] = []
     current: SymmetryGroup | None = None
-    pending_tag: str | None = None
-    member: SymmetryMember | None = None
-
-    def close_member() -> None:
-        nonlocal member
-        if member and current:
-            current.members.append(member)
-        member = None
+    open_cards: list[tuple[float, SymmetryMember]] = []
+    pending_tags: list[tuple[float, str]] = []
 
     for i in range(start, end):
         line = lines[i]
 
         m = _SYM_WARN_RE.search(line)
         if m:
-            close_member()
             grp = m.group("grp")
             if current is None or current.group != grp:
                 current = SymmetryGroup(group=grp, message=m.group("msg").strip(), line=i)
                 groups.append(current)
+            open_cards = []
+            pending_tags = []
             continue
 
         if current is None:
             continue
 
-        tag = _SYM_TAG_RE.match(line)
-        if tag:
-            pending_tag = tag.group(1)
+        boxes = _sym_boxes(line)
+        if not boxes:
+            # A bare tag line (one or more tags) introduces the next row of
+            # cards; anything else with no box is not part of a card.
+            tags = [(t.center, t.text) for t in tokenize(line) if _SYM_TAG_RE.match(t.text)]
+            if tags and len(line.strip()) <= 40:
+                pending_tags = tags
+                open_cards = []
             continue
-        # Two cards can share a line; collect every tag on it.
-        if "|" not in line and line.strip() and len(line.strip()) <= 24:
-            tags = [t.text for t in tokenize(line) if re.fullmatch(r"[A-Z]\d", t.text)]
-            if tags:
-                pending_tag = tags[0]
+
+        for centre, text in boxes:
+            head = _SYM_HEAD_RE.match(text)
+            if head:
+                tag = "?"
+                if pending_tags:
+                    tag = min(pending_tags, key=lambda t: abs(t[0] - centre))[1]
+                member = SymmetryMember(
+                    tag=tag,
+                    row=int(head.group("row")),
+                    col=int(head.group("col")),
+                    label=head.group("label"),
+                )
+                current.members.append(member)
+                open_cards.append((centre, member))
                 continue
+            if not open_cards:
+                continue
+            member = min(open_cards, key=lambda c: abs(c[0] - centre))[1]
+            kv = _SYM_KV_RE.match(text)
+            if kv:
+                key, val = kv.group("key"), kv.group("val")
+                if key == "FUE.ROT":
+                    member.fue_rot = int(float(val))
+                elif key == "FUE.TYP":
+                    member.fue_typ = int(float(val))
+                else:
+                    member.ave_exp = as_float(val)
+                continue
+            pair = _SYM_PAIR_RE.match(text)
+            if pair:
+                for g in ("a", "b"):
+                    v = as_float(pair.group(g))
+                    if v is not None:
+                        member.quadrant_exp.append(v)
 
-        head = _SYM_HEAD_RE.search(line)
-        if head:
-            close_member()
-            member = SymmetryMember(
-                tag=pending_tag or "?",
-                row=int(head.group("row")),
-                col=int(head.group("col")),
-                label=head.group("label"),
-            )
-            pending_tag = None
-            continue
-
-        if member is None:
-            continue
-
-        kv = _SYM_KV_RE.search(line)
-        if kv:
-            key, val = kv.group("key"), kv.group("val")
-            if key == "FUE.ROT":
-                member.fue_rot = int(float(val))
-            elif key == "FUE.TYP":
-                member.fue_typ = int(float(val))
-            else:
-                member.ave_exp = as_float(val)
-            continue
-
-        pair = _SYM_PAIR_RE.search(line)
-        if pair:
-            for g in ("a", "b"):
-                v = as_float(pair.group(g))
-                if v is not None:
-                    member.quadrant_exp.append(v)
-
-    close_member()
     return [g for g in groups if g.members]
+
+
+def _sym_boxes(line: str) -> list[tuple[float, str]]:
+    """``(column centre, contents)`` for every ``|...|`` box on a line.
+
+    Adjacent boxes share a ``|``, which a non-overlapping scan would skip, so
+    the scan restarts on each closing bar.
+    """
+    out: list[tuple[float, str]] = []
+    pos = 0
+    while True:
+        m = _SYM_BOX_RE.search(line, pos)
+        if not m:
+            break
+        pos = m.end() - 1
+        entry = ((m.start() + m.end()) / 2.0, m.group(1).strip())
+        if entry not in out:
+            out.append(entry)
+    return out
 
 
 # ------------------------------------------------------------ depletion table
@@ -290,6 +349,41 @@ def parse_depletion_table(lines: list[str], start: int, end: int) -> list[dict]:
 # ------------------------------------------------------- axial distributions
 
 
+# ------------------------------------------------- output-summary peak block
+
+# The peak-power lines are the only Output Summary entries printed WITHOUT a
+# dot leader, so the generic key/value scan never sees them and `peakNodal`
+# comes out null on every state point. They are read here by name instead.
+_PEAK_RE = re.compile(
+    r"(?P<label>Peak Nodal Power|F-delta-H|Max-Fxy|Max-3PIN|Max-4PIN)"
+    r"(?:\s*\(Location\))?\s+(?P<value>-?\d+\.\d+)\b"
+)
+
+
+def parse_summary_peaks(lines: list[str], start: int, end: int) -> dict[str, dict]:
+    """Peak power entries from an ``Output Summary`` block.
+
+    Returned in the same shape as the dot-leader entries so the caller can
+    merge them into one ``summary`` mapping.
+    """
+    out: dict[str, dict] = {}
+    for i in range(start, end):
+        for m in _PEAK_RE.finditer(lines[i]):
+            label = m.group("label")
+            if label in out:
+                continue
+            val = as_float(m.group("value"))
+            if val is None:
+                continue
+            out[label] = {"value": val, "code": None, "unit": None, "line": i}
+    return out
+
+
+# ------------------------------------------------------- axial distributions
+
+_AXIAL_SUMMARY_ROWS = {"Ave", "A-O", "P**2", "Min", "Max"}
+
+
 def parse_axial_table(lines: list[str], start: int, end: int) -> dict:
     """Parse an ``Average Axial Distributions`` block.
 
@@ -297,38 +391,101 @@ def parse_axial_table(lines: list[str], start: int, end: int) -> dict:
     node first, with trailing ``Ave`` / ``A-O`` / ``P**2`` summary rows. In a
     2D case only the summary rows exist, which the caller renders as "no
     axial detail" rather than an empty chart.
-    """
-    header_idx = None
-    columns: list[str] = []
-    for i in range(start, min(end, start + 8)):
-        toks = tokenize(lines[i])
-        if toks and toks[0].text == "K" and len(toks) > 1:
-            header_idx = i
-            columns = [t.text for t in toks[1:]]
-            break
-    if header_idx is None:
-        return {"columns": [], "nodes": [], "summary": {}}
 
-    nodes: list[dict] = []
+    Two details make a naive read wrong:
+
+    * The depletion block prints **more variables than fit the page width**,
+      so it repeats the ``K ...`` header two or three times with further
+      columns. Every sub-table is merged into one node row, otherwise two
+      thirds of the depletion arguments are silently dropped.
+    * Summary rows can be **sparse** -- ``P**2`` prints a single number under
+      ``EXPO``, not under the first column. Rows whose value count differs
+      from the column count are therefore placed by character position
+      instead of being zipped left-to-right.
+    """
+    nodes: dict[int, dict] = {}
     summary: dict[str, dict[str, float | None]] = {}
-    for i in range(header_idx + 1, end):
+    columns: list[str] = []
+
+    header_idx: int | None = None
+    sub_cols: list[str] = []
+    sub_toks: list = []
+    saw_data = False
+
+    for i in range(start, end):
         line = lines[i]
-        if not line.strip():
-            continue
         toks = tokenize(line)
         if not toks:
             continue
+        if toks[0].text == "K" and len(toks) > 1 and _looks_like_axial_header(toks):
+            # A new sub-table: same rows, further columns.
+            if header_idx is not None and not saw_data:
+                break
+            header_idx = i
+            sub_toks = toks[1:]
+            sub_cols = [t.text for t in sub_toks]
+            for c in sub_cols:
+                if c not in columns:
+                    columns.append(c)
+            continue
+        if header_idx is None:
+            continue
+
         head = toks[0].text
-        vals = [as_float(t.text) for t in toks[1:]]
         if head.isdigit():
-            nodes.append({"node": int(head), **dict(zip(columns, vals))})
-        elif head in {"Ave", "A-O", "P**2", "Min", "Max"}:
-            summary[head] = dict(zip(columns, vals))
-        elif nodes or summary:
+            saw_data = True
+            row = nodes.setdefault(int(head), {"node": int(head)})
+            row.update(_axial_row(toks[1:], sub_cols, sub_toks))
+        elif head in _AXIAL_SUMMARY_ROWS:
+            saw_data = True
+            summary.setdefault(head, {}).update(_axial_row(toks[1:], sub_cols, sub_toks))
+        elif saw_data and not _is_page_furniture(line):
             break
 
-    nodes.sort(key=lambda n: n["node"])
-    return {"columns": columns, "nodes": nodes, "summary": summary}
+    if header_idx is None:
+        return {"columns": [], "nodes": [], "summary": {}}
+    return {
+        "columns": columns,
+        "nodes": [nodes[k] for k in sorted(nodes)],
+        "summary": summary,
+    }
+
+
+def _looks_like_axial_header(toks: list) -> bool:
+    """True when a ``K ...`` line names variables rather than holding data."""
+    return all(as_float(t.text) is None for t in toks[1:])
+
+
+def _axial_row(value_toks: list, columns: list[str], header_toks: list) -> dict:
+    """Map one row's values onto column names.
+
+    A full row is zipped left-to-right, which is exact. A short row is placed
+    by matching each value's right edge to the nearest column heading's right
+    edge, because SIMULATE-3 leaves the missing columns blank rather than
+    shifting the printed ones left.
+    """
+    vals = [as_float(t.text) for t in value_toks]
+    if len(vals) == len(columns):
+        return dict(zip(columns, vals))
+    out: dict[str, float | None] = {}
+    for tok, val in zip(value_toks, vals):
+        best, best_d = None, 1e9
+        for name, htok in zip(columns, header_toks):
+            d = abs(htok.end - tok.end)
+            if d < best_d:
+                best, best_d = name, d
+        if best is not None and best_d <= 6:
+            out[best] = val
+    return out
+
+
+def _is_page_furniture(line: str) -> bool:
+    """Page banners split a block in two; they are not the end of it."""
+    s = line.strip()
+    return bool(
+        re.match(r"^\d?S\s?I\s?M\s?U\s?L\s?A\s?T\s?E", s)
+        or s.startswith(("Run:", "Case ", "Cycle exposure"))
+    )
 
 
 # ------------------------------------------------------------- batch inventory

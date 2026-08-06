@@ -43,7 +43,7 @@ Errors are `{"detail": "..."}` with 4xx/5xx.
     "restartExposure": 20000.0,         // may be null
     "stepCount": 31,
     "exposureUnit": "GWd/MT",       // or "EFPD" — NEVER hard-code
-    "cycleStart": 0.0, "cycleEnd": 25.05,
+    "cycleStart": 0.0, "cycleEnd": 24.112,
 
     // Run cost + termination status. Show "completion" prominently: anything
     // other than "Normal Termination" means the results may be incomplete.
@@ -105,11 +105,15 @@ Errors are `{"detail": "..."}` with 4xx/5xx.
       // Every dot-leader entry from the Output Summary block.
       "summary": { "K-effective": {"value":1.14074,"code":null,"unit":null,"line":2628}, ... },
 
-      // 2D files: nodes=[] and only summary.Ave. 3D files: one row per axial node.
+      // 2D files: nodes=[] and only summary.Ave. 3D files: one row per axial node,
+      // ordered bottom (node 1) to top regardless of the listing's print order.
+      // summary rows can be SPARSE: "P**2" carries only EXPO. Read by key.
       "axialState":     { "columns":["RPF","KINF","EXPO","CRD","DEN","TFU","TMO"],
                           "nodes":[{"node":1,"RPF":0.57392,...}],
-                          "summary":{"Ave":{...},"A-O":{...}} },
-      "axialDepletion": { ...same shape, depletion arguments... },
+                          "summary":{"Ave":{...},"A-O":{...},"P**2":{"EXPO":0.0}} },
+      "axialDepletion": { ...same shape, depletion arguments. The listing splits
+                          these across 2-3 page-width sub-tables; they are merged,
+                          so `columns` here is ~18-20 long, not 9. ... },
 
       "batchEdits": { "NPIN": [{"batch":"3","name":"","assemblies":121,"value":1.61,
                                 "label":"H-16","serial":"F-149","location":"(14, 3, 1)"}] },
