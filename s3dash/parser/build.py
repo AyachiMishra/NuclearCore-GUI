@@ -496,14 +496,27 @@ def _timing(doc: Document, notes: list[str]) -> dict:
 
 
 def _plant_guess(doc: Document, deck: inputcards.InputDeck) -> str | None:
-    """Best-effort plant name from the comment banner at the top of the deck."""
+    """Best-effort plant name from the comment banner at the top of the deck.
+
+    Decks conventionally open with a boxed ``'COM'`` banner naming the plant
+    ("APR1400 MODEL", "BEAVRS"). The first line inside the box that is real
+    text wins; rule lines and the letter-spaced "C Y C L E   2" line are
+    skipped. Falls back to the project title.
+    """
     for line in doc.lines[:80]:
-        if line.lstrip().startswith("'COM'") and "*" in line:
-            text = line.split("'COM'", 1)[1].strip().strip("*").strip()
-            if text and not set(text) <= {"-", " "} and len(text) > 3:
-                if not text.replace(" ", "").isalpha() or len(text) > 40:
-                    continue
-                return text
+        stripped = line.lstrip()
+        if not stripped.startswith("'COM'") or "*" not in line:
+            continue
+        text = line.split("'COM'", 1)[1].strip().strip("*").strip()
+        if len(text) < 4 or len(text) > 40:
+            continue
+        if set(text) <= set("-_= "):  # a rule line, not a name
+            continue
+        tokens = text.split()
+        if len(tokens) >= 4 and all(len(t) == 1 for t in tokens[:4]):
+            continue  # letter-spaced, e.g. "C Y C L E   2"
+        if any(ch.isalpha() for ch in text):
+            return " ".join(tokens)
     return deck.project
 
 
