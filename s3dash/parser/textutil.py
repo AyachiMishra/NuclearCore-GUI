@@ -142,25 +142,24 @@ def iter_windows(lines: list[str], start: int, limit: int) -> Iterator[tuple[int
         yield i, lines[i]
 
 
-_SPACED_RE = re.compile(r"(?:(?<=^)|(?<= ))(?:[A-Za-z0-9/+-] ){3,}[A-Za-z0-9/+-](?= |$)")
-
-
 def despace_heading(line: str) -> str:
     """Collapse Fortran letter-spaced banner headings back to normal words.
 
-    SIMULATE-3 prints major headings letter-spaced, e.g.
-    ``S u m m a r y   o f   E r r o r s``. Anchors are written against normal
-    text, so headings are normalized before matching. Lines without a spaced
-    run are returned unchanged.
+    SIMULATE-3 prints major headings letter-spaced::
+
+        S u m m a r y   o f   E r r o r s / W a r n i n g s
+
+    Letters within a word are separated by one space and words by two or
+    more, so the whole line is classified first (most tokens being single
+    characters is the tell) and then split on the wider gaps. Classifying the
+    line rather than matching runs is what makes short words like "o f" and
+    "a n d" survive. Lines that are not letter-spaced are returned unchanged.
     """
-    if "  " not in line:
+    tokens = line.split()
+    if len(tokens) < 6:
         return line
-
-    def collapse(m: re.Match[str]) -> str:
-        return m.group(0).replace(" ", "")
-
-    candidate = _SPACED_RE.sub(collapse, line)
-    if candidate == line:
+    singles = sum(1 for t in tokens if len(t) == 1)
+    if singles / len(tokens) < 0.6:
         return line
-    # Word gaps were three spaces (one separator + two padding); normalize them.
-    return re.sub(r"\s{2,}", " ", candidate)
+    words = [w.replace(" ", "") for w in re.split(r"\s{2,}", line.strip()) if w.strip()]
+    return " ".join(w for w in words if w)
