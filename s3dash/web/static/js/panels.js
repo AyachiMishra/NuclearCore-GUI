@@ -22,7 +22,6 @@ import {
   fmtFixed,
   esc,
 } from './state.js';
-import { miniBars } from './charts.js';
 import { categoricalColor } from './coremap.js';
 import { fetchSection } from './api.js';
 
@@ -70,29 +69,38 @@ export function renderHeader() {
   if (t && Number.isFinite(t.elapsedSeconds)) exec.push(`${fmt(t.elapsedSeconds, 3)} s elapsed`);
   if (t && Number.isFinite(t.cpuUtilisation)) exec.push(`${fmt(t.cpuUtilisation, 1)} % util`);
 
+  /* Stacked in the left column rather than strung across the header: in the
+   * horizontal strip the case title, geometry and timing were all clipped to
+   * an ellipsis at 1440 px (needing 434 / 320 / 200 px of 173 px), and below
+   * 980 px the strip was hidden outright. Here every value wraps in full. */
   const items = [
+    ['Plant', m.plant || m.project || '—'],
+    ['Case', m.caseTitle || m.runName || 'untitled case'],
     ['Code', `${m.code || 'SIMULATE-3'} ${m.version || ''}`.trim()],
-    [
-      'Plant / case',
-      `${m.plant || m.project || '—'} — ${m.caseTitle || m.runName || 'untitled case'}`,
-    ],
-    ['Geometry', `${geometrySummary} · ${g.nAssemblies ?? '—'} assemblies`],
     ['Run', `${m.runDate || '—'} ${m.runTime ? String(m.runTime).replace(/\.$/, '') : ''}`.trim()],
+    ['Geometry', `${geometrySummary} · ${g.nAssemblies ?? '—'} assemblies`],
     [
       'Depletion',
       `${(p.statePoints || []).length} steps · ` +
         (m.cycleStart === null || m.cycleStart === undefined
           ? '—'
-          : `${fmt(m.cycleStart, 3)}–${fmt(m.cycleEnd, 3)} ${unit}`),
+          : `${fmt(m.cycleStart, 3)} – ${fmt(m.cycleEnd, 3)} ${unit}`),
     ],
-    ['Execution time', exec.length ? exec.join(' · ') : `${m.pageCount ?? '—'} pages`],
+    ['Execution', exec.length ? exec.join(' · ') : `${m.pageCount ?? '—'} pages`],
+    ['Listing', `${m.pageCount ?? '—'} pages · ${m.lineCount ?? '—'} lines`],
   ];
+  if (m.restartFile) {
+    items.push([
+      'Restart',
+      `${m.restartFile}${Number.isFinite(m.restartExposure) ? ` @ ${fmt(m.restartExposure, 3)} ${unit}` : ''}`,
+    ]);
+  }
 
   strip.innerHTML = items
     .map(
       ([k, v]) =>
         `<div class="meta-item"><span class="meta-k">${esc(k)}</span>` +
-        `<span class="meta-v" title="${esc(v)}">${esc(v)}</span></div>`
+        `<span class="meta-v">${esc(v)}</span></div>`
     )
     .join('');
 
@@ -189,6 +197,9 @@ export function renderInspector() {
     }
   }
   out.push(section('State point', kvTable(stepRows)));
+
+  out.push(outputSummaryBlock(sp));
+  out.push(batchEditBlock(sp, p));
 
   /* --- control rods (own drive grid, not the assembly index space) ------ */
   const crd = controlRodSummary();
@@ -309,6 +320,100 @@ function section(title, body, badge = '') {
   );
 }
 
+/** Collapsible section — for reference data that must be reachable without
+ *  pushing the reader's actual subject below the fold. */
+function foldSection(title, count, body, note = '') {
+  return (
+    `<details class="sub fold"><summary><span class="fold-title">${esc(title)}</span>` +
+    (count === null ? '' : `<span class="pill pill-mini">${esc(count)}</span>`) +
+    (note ? `<span class="fold-note">${esc(note)}</span>` : '') +
+    `</summary>${body}</details>`
+  );
+}
+
+/* The Output Summary block: every dot-leader entry SIMULATE prints for the
+ * state point, with the unit and the code it uses internally. Roughly 25
+ * values per step that the UI previously parsed and then threw away. */
+function outputSummaryBlock(sp) {
+  const sum = sp && sp.summary ? sp.summary : null;
+  const keys = sum ? Object.keys(sum) : [];
+  if (!keys.length) {
+    return foldSection(
+      'Output summary',
+      null,
+      `<div class="empty-note">This state point printed no Output Summary block.</div>`
+    );
+  }
+  const rows = keys
+    .map((k) => {
+      const e = sum[k] || {};
+      const v = Number.isFinite(e.value) ? fmt(e.value, 4) : e.value === null || e.value === undefined ? '—' : String(e.value);
+      return (
+        `<tr><th>${esc(k)}${e.code ? `<span class="code-tag">${esc(e.code)}</span>` : ''}</th>` +
+        `<td class="num">${esc(v)}</td><td class="unit">${esc(e.unit || '')}</td></tr>`
+      );
+    })
+    .join('');
+  return foldSection(
+    'Output summary',
+    keys.length,
+    `<div class="table-wrap"><table class="data-table sum-table">` +
+      `<thead><tr><th>Quantity</th><th class="num">Value</th><th>Unit</th></tr></thead>` +
+      `<tbody>${rows}</tbody></table></div>`,
+    `step ${sp.step}`
+  );
+}
+
+/* Per-batch edits (BAT.EDT). Absent from runs that never requested them —
+ * BEAVRS is one — so the empty state has to say "not in this run", not
+ * silently render nothing. */
+function batchEditBlock(sp, p) {
+  const be = sp && sp.batchEdits ? sp.batchEdits : null;
+  const codes = be ? Object.keys(be) : [];
+  if (!codes.length) {
+    const everHad = (p.statePoints || []).some(
+      (s) => s.batchEdits && Object.keys(s.batchEdits).length
+    );
+    return foldSection(
+      'Batch edits',
+      null,
+      `<div class="empty-note">` +
+        (everHad
+          ? `No batch edit was printed at this step, though other steps in this run have one.`
+          : `<strong>Not present in this run.</strong> This listing contains no ` +
+            `<code>BAT.EDT</code> block, so SIMULATE-3 printed no per-batch summary.`) +
+        `</div>`
+    );
+  }
+  const blocks = codes
+    .map((code) => {
+      const rows = (be[code] || [])
+        .map(
+          (b) =>
+            `<tr><td class="mono">${esc(b.batch)}${b.name ? ` · ${esc(b.name)}` : ''}</td>` +
+            `<td class="num">${esc(b.assemblies ?? '—')}</td>` +
+            `<td class="num">${esc(fmt(b.value, 4))}</td>` +
+            `<td class="mono">${esc(b.label || '—')}${b.serial ? `<span class="sub-id">${esc(b.serial)}</span>` : ''}</td>` +
+            `<td class="mono">${esc(b.location || '—')}</td></tr>`
+        )
+        .join('');
+      return (
+        `<div class="be-block"><div class="be-code">${esc(code)}</div>` +
+        `<div class="table-wrap"><table class="data-table"><thead><tr><th>Batch</th>` +
+        `<th class="num">Asm</th><th class="num">Value</th><th>Limiting</th><th>Location</th>` +
+        `</tr></thead><tbody>${rows}</tbody></table></div></div>`
+      );
+    })
+    .join('');
+  return foldSection(
+    'Batch edits',
+    codes.length,
+    blocks + `<p class="foot-note">Value is the batch maximum; <b>Limiting</b> names the ` +
+      `assembly that carries it and <b>Location</b> is its (row, col, node).</p>`,
+    `step ${sp.step}`
+  );
+}
+
 function kvTable(rows) {
   return (
     `<table class="kv"><tbody>` +
@@ -319,25 +424,50 @@ function kvTable(rows) {
   );
 }
 
-/** One symmetry group: every member, its quadrant exposures and the spread. */
+/** One symmetry group.
+ *
+ * The point of this card is to answer "which position disagrees, and by how
+ * much?" — so each member carries its signed deviation from the group mean and
+ * its own 2x2 quadrant spread, and the worst offender is called out by name
+ * rather than left for the reader to subtract. */
 function symmetryCard(group, hereKey) {
   const members = group.members || [];
   const aves = members.map((m) => m.aveExp).filter((v) => Number.isFinite(v));
   const spread = aves.length ? Math.max(...aves) - Math.min(...aves) : null;
+  const mean = aves.length ? aves.reduce((a, b) => a + b, 0) / aves.length : null;
   const types = new Set(members.map((m) => m.fuelType));
+
+  const quadSpread = (m) => {
+    const q = Array.isArray(m.quadrantExp) ? m.quadrantExp.filter(Number.isFinite) : [];
+    return q.length > 1 ? Math.max(...q) - Math.min(...q) : null;
+  };
+  const dev = (m) => (mean !== null && Number.isFinite(m.aveExp) ? m.aveExp - mean : null);
+  const worst = members.reduce(
+    (a, b) => (Math.abs(dev(b) ?? -1) > Math.abs(dev(a) ?? -1) ? b : a),
+    members[0] || null
+  );
 
   const rows = members
     .map((m) => {
       const isHere = `${m.row},${m.col}` === hereKey;
+      const isWorst = worst && m === worst && members.length > 1 && Math.abs(dev(m) ?? 0) > 0;
       const quads = Array.isArray(m.quadrantExp) ? m.quadrantExp : [];
+      const d = dev(m);
+      const qs = quadSpread(m);
       return (
-        `<tr class="${isHere ? 'is-here' : ''}">` +
+        `<tr class="${[isHere ? 'is-here' : '', isWorst ? 'is-worst' : ''].filter(Boolean).join(' ')}">` +
         `<td><button type="button" class="linkish" data-select-rc="${m.row},${m.col}">` +
         `${esc(m.label || `(${m.row},${m.col})`)}</button>` +
-        `<span class="sym-tag">${esc(m.tag || '')}</span></td>` +
+        `<span class="sym-tag">${esc(m.tag || '')}</span>` +
+        (isWorst ? `<span class="tag tag-warn">worst</span>` : '') +
+        `</td>` +
         `<td class="num">${m.row}, ${m.col}</td>` +
         `<td class="num">${esc(m.fuelType ?? '—')}</td>` +
         `<td class="num">${esc(fmt(m.aveExp, 3))}</td>` +
+        `<td class="num delta">${
+          d === null ? '—' : `${d > 0 ? '+' : d < 0 ? '−' : '±'}${esc(fmt(Math.abs(d), 3))}`
+        }</td>` +
+        `<td class="num">${qs === null ? '—' : esc(fmt(qs, 3))}</td>` +
         `<td class="quad">${
           quads.length
             ? `<span class="quad-grid">${quads
@@ -349,12 +479,22 @@ function symmetryCard(group, hereKey) {
     })
     .join('');
 
+  const worstBit =
+    worst && Number.isFinite(dev(worst))
+      ? `Largest disagreement at <b>${esc(worst.label || `(${worst.row}, ${worst.col})`)}</b> ` +
+        `(${worst.row}, ${worst.col}), ${esc(fmt(Math.abs(dev(worst)), 4))} from the group mean ` +
+        `of ${esc(fmt(mean, 4))}.`
+      : '';
+
   return (
     `<section class="sub sym-card">` +
     `<h3>Symmetry group ${esc(group.group)}<span class="tag tag-warn">violation</span></h3>` +
     `<p class="sym-msg">${esc(group.message || '')}</p>` +
+    (worstBit ? `<p class="sym-worst">${worstBit}</p>` : '') +
     `<div class="table-wrap"><table class="data-table sym-table">` +
-    `<thead><tr><th>Member</th><th>row, col</th><th>Type</th><th>Ave exp</th>` +
+    `<thead><tr><th>Member</th><th class="num">row, col</th><th class="num">Type</th>` +
+    `<th class="num">Ave exp</th><th class="num" title="Signed deviation from the group mean">Δ mean</th>` +
+    `<th class="num" title="Max minus min of this member's own 2×2 quadrant exposures">Quad spread</th>` +
     `<th>2×2 quadrant exposures</th></tr></thead><tbody>${rows}</tbody></table></div>` +
     `<div class="sym-foot">` +
     (spread !== null ? `Ave-exposure spread <b>${esc(fmt(spread, 4))}</b>` : '') +
@@ -362,7 +502,9 @@ function symmetryCard(group, hereKey) {
       ? ` · reported spread <b>${esc(fmt(group.expSpread, 4))}</b>`
       : '') +
     (types.size > 1 || group.typeMismatch ? ` · <b class="bad">fuel-type mismatch</b>` : '') +
-    (group.line !== null && group.line !== undefined ? ` · listing line ${group.line}` : '') +
+    (group.line !== null && group.line !== undefined
+      ? ` · <button type="button" class="linkish" data-goto-line="${group.line}">listing line ${group.line}</button>`
+      : '') +
     `</div></section>`
   );
 }
@@ -473,11 +615,11 @@ function executionBlock(p) {
     ['Restart file', m.restartFile || '—'],
     [
       'Restart exposure',
-      Number.isFinite(m.restartExposure) ? `${fmt(m.restartExposure, 3)}` : '—',
+      Number.isFinite(m.restartExposure) ? `${fmt(m.restartExposure, 3)} ${exposureUnit(p)}` : '—',
     ],
     ['Power / flow', `${fmt(m.percentPower, 1)} % / ${fmt(m.percentFlow, 1)} %`],
   ];
-  const subs = Array.isArray(t.subroutines) ? t.subroutines.slice(0, 8) : [];
+  const subs = Array.isArray(t.subroutines) ? t.subroutines : [];
   return (
     `<h3 class="panel-h">Execution</h3>` +
     `<section class="sub">` +
@@ -487,12 +629,8 @@ function executionBlock(p) {
       : '') +
     kvTable(rows) +
     (subs.length
-      ? `<details class="chart-data"><summary>CPU by subroutine</summary>` +
-        miniBars(
-          subs.map((s) => ({ label: s.subroutine, value: Number(fmt(s.cpuSeconds, 3)) || 0 })),
-          { title: 'CPU seconds by subroutine' }
-        ) +
-        `</details>`
+      ? `<p class="foot-note">The per-subroutine CPU profile (${subs.length} entries) is ` +
+        `charted on the <b>Plots</b> view.</p>`
       : '') +
     `</section>`
   );
@@ -575,14 +713,6 @@ export function renderInventory() {
                   : ` <span class="check bad">✗ declared type totals give ${fmt(declaredTotal, 0)}</span>`
                 : ''
             }</div>`) +
-        miniBars(
-          inv.map((r, i) => ({
-            label: r.typeName || `Type ${r.fuelType}`,
-            value: r.count || 0,
-            color: categoricalColor(i),
-          })),
-          { title: 'Assembly count by fuel type', labelWidth: 108 }
-        ) +
         `</section>`
     );
   }
@@ -656,7 +786,58 @@ export function renderInventory() {
     );
   }
 
+  out.push(listingBlocks(p));
   host.innerHTML = out.join('');
+}
+
+/* Which optional edits this run actually contains. Without this, a listing
+ * that never requested PRI.INP maps or BAT.EDT is indistinguishable from a
+ * parse failure — the reader just sees nothing and has to guess. */
+function listingBlocks(p) {
+  const maps = p.maps || {};
+  const hasBatch = (p.statePoints || []).some(
+    (s) => s.batchEdits && Object.keys(s.batchEdits).length
+  );
+  const g = p.geometry || {};
+  const nSym = (p.symmetryGroups || []).length;
+  // [label, state, detail, explanation] — state is 'yes' | 'no' | 'ok'
+  const rows = [
+    ['Fuel map (FMAP)', maps.fmap ? 'yes' : 'no', maps.fmap ? cellCount(maps.fmap) : 'no PRI.INP fuel map edited',
+      'Identity per position is also carried by the assembly records, which are always present, so the map itself is not required to read this run.'],
+    ['Core map (CMAP)', maps.cmap ? 'yes' : 'no', maps.cmap ? cellCount(maps.cmap) : 'no PRI.INP core map edited',
+      'Optional PRI.INP core map edit.'],
+    ['Batch edits (BAT.EDT)', hasBatch ? 'yes' : 'no', hasBatch ? 'one per state point' : 'no BAT.EDT block',
+      'Per-batch maxima with the limiting assembly. Shown in the Inspector.'],
+    ['Axial edits', g.is3d ? 'yes' : 'no', g.is3d ? `${g.fuelNodes} fuel nodes` : '2D run — one axial fuel node',
+      g.is3d ? 'Axial distributions per state point, plotted on the Plots view.'
+             : 'A single axial node means there is no axial shape to edit — this is the geometry, not a missing block.'],
+    ['Symmetry check', nSym ? 'no' : 'ok', nSym ? `${nSym} group${nSym === 1 ? '' : 's'} flagged` : 'ran, every group passed',
+      nSym ? 'Failing groups are listed under Diagnostics.' : 'The check was performed and nothing failed.'],
+  ];
+  const LABEL = { yes: 'present', no: 'not in this run', ok: 'clean' };
+  return (
+    `<section class="sub"><h3>Listing blocks</h3>` +
+    `<table class="kv blocks"><tbody>` +
+    rows
+      .map(
+        ([k, stateName, detail, why]) =>
+          `<tr><th>${esc(k)}</th><td>` +
+          `<span class="blk ${esc(stateName)}">${esc(LABEL[stateName])}</span> ` +
+          `<span class="muted">${esc(detail)}</span>` +
+          `<div class="blk-why">${esc(why)}</div></td></tr>`
+      )
+      .join('') +
+    `</tbody></table>` +
+    `<p class="foot-note">These blocks are optional in a SIMULATE-3 run. “Not in this run” ` +
+    `means the listing never contained them — it is not a parse failure.</p>` +
+    `</section>`
+  );
+}
+
+function cellCount(map) {
+  const n = Array.isArray(map.cells) ? map.cells.length : 0;
+  const f = Array.isArray(map.fieldNames) && map.fieldNames.length ? ` · ${map.fieldNames.join(', ')}` : '';
+  return `${n} position${n === 1 ? '' : 's'}${f}`;
 }
 
 /* --------------------------------------------------------- listing navigator */
@@ -768,8 +949,9 @@ export function renderSectionViewer() {
 
   if (!sec) {
     host.innerHTML =
-      `<div class="empty-note">Pick a section in the listing navigator (left) to read the raw ` +
-      `SIMULATE-3 output for it — or click a text hit to jump straight to the line.</div>`;
+      `<div class="empty-note">Pick a section in the listing navigator to read the raw ` +
+      `SIMULATE-3 output for it — or search the listing and click a text hit to jump ` +
+      `straight to that line.</div>`;
     note.textContent = 'Nothing open';
     copy.hidden = true;
     return;
