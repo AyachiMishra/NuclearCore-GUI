@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import inputcards, primitives, sections
+from . import controlrods, inputcards, primitives, sections
 from .document import Document, Section
 from .geometry import Geometry, expand_to_full_core, parse_geometry
 
@@ -134,8 +134,10 @@ def build(doc: Document) -> BuildResult:
 
     state_points, order, assemblies = _build_state_points(doc, geom, fmap, cmap, deck, segments, notes)
 
+    timing = _timing(doc, notes)
+
     payload = {
-        "meta": _meta(doc, deck, geom, state_points),
+        "meta": {**_meta(doc, deck, geom, state_points), "timing": timing},
         "geometry": geom.to_json(),
         "status": _status(diagnostics, symgroups),
         "assemblies": [a.to_json() for a in assemblies],
@@ -241,6 +243,10 @@ def _build_state_points(
             extras.setdefault(key, {})["batchEdits"] = sections.parse_batch_edits(
                 doc.lines, sec.start, sec.end
             )
+        elif sec.kind == "crd":
+            rods = controlrods.parse_control_rod_map(doc.lines, sec.start, sec.end)
+            if rods:
+                extras.setdefault(key, {})["controlRods"] = rods.to_json()
 
     assemblies = _resolve_assemblies(geom, buckets, fmap, cmap, deck, segments)
     index = {(a.row, a.col): i for i, a in enumerate(assemblies)}
@@ -286,6 +292,7 @@ def _build_state_points(
                 "axialState": extra.get("axialState"),
                 "axialDepletion": extra.get("axialDepletion"),
                 "batchEdits": extra.get("batchEdits"),
+                "controlRods": extra.get("controlRods"),
             }
         )
     return out, var_order, assemblies
@@ -466,6 +473,26 @@ def _meta(doc: Document, deck: inputcards.InputDeck, geom: Geometry, sps: list[d
         "cycleEnd": max(exposures) if exposures else None,
         "plant": _plant_guess(doc, deck),
     }
+
+
+def _timing(doc: Document, notes: list[str]) -> dict:
+    """Run timing and termination status from the closing CPU report.
+
+    Scanned to end-of-file rather than to the section end, because the
+    completion banner is printed after the timing table.
+    """
+    secs = doc.find("timing", "CPU Time")
+    if not secs:
+        return {}
+    try:
+        info = controlrods.parse_timing(doc.lines, secs[0].start, len(doc.lines))
+        info["subroutines"] = controlrods.parse_subroutine_timing(
+            doc.lines, secs[0].start, secs[0].end
+        )
+        return info
+    except Exception as exc:
+        notes.append(f"timing failed ({exc.__class__.__name__}: {exc})")
+        return {}
 
 
 def _plant_guess(doc: Document, deck: inputcards.InputDeck) -> str | None:
