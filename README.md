@@ -1,6 +1,6 @@
 # SIMULATE-3 VISION:  Analysis Dashboard
 
-Load a SIMULATE-3 output listing and understand it without reading eleven
+Load a SIMULATE-3 output listing (Eg: run192832.out) and understand it without reading eleven
 thousand lines of fixed-width Fortran print.
 
 Upload a `.out` file and get an interactive core map, per-assembly inspection,
