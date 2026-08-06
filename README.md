@@ -109,6 +109,32 @@ against previously-parsed output:
 python -m pytest tests/ -q
 ```
 
+### Checking a file the parser has never seen
+
+Point the self-check at any listing to find out whether it was understood.
+Every check compares the parser against a number the file states about
+itself, so it needs no known-good reference:
+
+```bash
+python -m s3dash.check path/to/run.out
+```
+
+```
+   ok   Assembly count vs Input Summary        241 parsed vs 241 declared
+   ok   Height-weighted counts vs Fueled Segments  4 segment(s) match
+   ok   k-eff agrees across two sources        Output Summary matches depletion table
+   ok   Rod positions vs listing total         289 positions vs 289 implied by total/steps
+```
+
+It exits non-zero on failure, so it can gate a batch conversion. Where it
+cannot decide something it says so rather than guessing — BEAVRS references
+eight fuel types the listing never describes, and the check reports that
+instead of silently misattributing them.
+
+This command found three real defects during development, including one where
+`FUE.TYP` numbers were being treated as segment numbers — harmless in the
+APR1400 decks, where they coincide, and wrong for most of the BEAVRS core.
+
 `verify/` holds an independent re-extraction of values straight from the raw
 text — deliberately written with different techniques than the parser uses, so
 a shared bug cannot hide — with its findings in

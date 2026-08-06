@@ -153,10 +153,26 @@ Errors are `{"detail": "..."}` with 4xx/5xx.
       "expSpread": 0.0, "typeMismatch": false, "line":899 }
   ],
 
-  "inventory": [ {"fuelType":8,"count":56,"batchLabel":"TP01","batchNumber":3,"fresh":true} ],
+  // Per fuel type. `segment` is the segment the type actually maps to, which
+  // is NOT always equal to fuelType — several types can share one segment, and
+  // `segment` is null when the listing never states the mapping. Use
+  // `enrichment` from here rather than looking it up by fuelType yourself.
+  "inventory": [ {"fuelType":8,"typeName":"ASSEMBLYF1","segment":8,"segmentName":"F1",
+                  "enrichment":5.56625,"count":56,"batchLabel":"TP01",
+                  "batchNumber":3,"fresh":true} ],
+
   "segments":  [ {"number":8,"name":"F1","loading":2.63569,"enrichment":5.56625,
                   "plutonium":null,"bpLoading":8.0,"bpRods":12,"bpRodsOriginal":12,
                   "equivalentAssemblies":56.0} ],
+                  // equivalentAssemblies is HEIGHT-WEIGHTED: an assembly whose
+                  // fuel segment spans 351 of 381 cm counts as 351/381. Do not
+                  // present it as an assembly count.
+
+  // Physical description per fuel type, incl. the type -> segment mapping.
+  "assemblyTypes": [ {"fuelType":8,"name":"ASSEMBLYF1","class":"Fuel","mechDesign":1,
+                      "loadingGrams":433522.0,"axialZones":1,"countInCore":56.0,
+                      "subTypes":[8,8],"segments":[8],"segmentHeights":{"8":381.0},
+                      "activeSegment":8,"isFuel":true} ],
 
   "maps": { "fmap": {...} | null, "cmap": {...} | null },   // null when not edited
 
