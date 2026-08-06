@@ -127,6 +127,30 @@ class TestExports:
         assert first[header.index("site")] == payload["assemblies"][0]["site"]
 
 
+class TestReportEndpoint:
+    def test_report_is_served_as_html(self, client, run_id):
+        resp = client.get(f"/api/run/{run_id}/report.html", params={"step": 0})
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+        assert resp.text.startswith("<!doctype html>")
+
+    def test_report_downloads_by_default(self, client, run_id):
+        resp = client.get(f"/api/run/{run_id}/report.html")
+        assert "attachment" in resp.headers.get("content-disposition", "")
+
+    def test_report_can_be_viewed_inline(self, client, run_id):
+        resp = client.get(f"/api/run/{run_id}/report.html", params={"download": False})
+        assert "content-disposition" not in resp.headers
+
+    def test_report_is_self_contained(self, client, run_id):
+        body = client.get(f"/api/run/{run_id}/report.html").text
+        assert "http://" not in body and "https://" not in body
+        assert "<script" not in body.lower()
+
+    def test_report_for_unknown_run_is_404(self, client):
+        assert client.get("/api/run/deadbeef/report.html").status_code == 404
+
+
 class TestStaticSurface:
     def test_index_is_served(self, client):
         resp = client.get("/")
