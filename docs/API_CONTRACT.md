@@ -43,7 +43,19 @@ Errors are `{"detail": "..."}` with 4xx/5xx.
     "restartExposure": 20000.0,         // may be null
     "stepCount": 31,
     "exposureUnit": "GWd/MT",       // or "EFPD" — NEVER hard-code
-    "cycleStart": 0.0, "cycleEnd": 25.05
+    "cycleStart": 0.0, "cycleEnd": 25.05,
+
+    // Run cost + termination status. Show "completion" prominently: anything
+    // other than "Normal Termination" means the results may be incomplete.
+    "timing": {
+      "cpuSeconds": 0.475, "elapsedSeconds": 1.0, "cpuUtilisation": 47.51,
+      "containerWords": 876563,
+      "startTime": "14:22:34", "startDate": "26/07/09",
+      "endTime": "14:22:35", "endDate": "26/07/09",
+      "completion": "Normal Termination",
+      "subroutines": [ {"subroutine":"PINS","cpuSeconds":0.17,"percent":35.8,
+                        "calls":31.0,"msPerCall":5.34} ]
+    }
   },
 
   "geometry": {
@@ -100,8 +112,22 @@ Errors are `{"detail": "..."}` with 4xx/5xx.
       "axialDepletion": { ...same shape, depletion arguments... },
 
       "batchEdits": { "NPIN": [{"batch":"3","name":"","assemblies":121,"value":1.61,
-                                "label":"H-16","serial":"F-149","location":"(14, 3, 1)"}] }
+                                "label":"H-16","serial":"F-149","location":"(14, 3, 1)"}] },
                      // null when the run had no BAT.EDT (BEAVRS)
+
+      // Control rod withdrawal map for this state point. Indexed by control-rod
+      // DRIVE location, which is its own grid (geometry.irmx wide) — do NOT
+      // assume it aligns with the assembly index space.
+      // "withdrawn" and an inserted value of 0 are DIFFERENT states.
+      "controlRods": {
+        "inserted":  [ {"row":1,"col":3,"steps":60.0} ],
+        "withdrawn": [ {"row":1,"col":1} ],
+        "rows": [1,2], "cols": [1,2,3,4],
+        "fullWithdrawalSteps": 100.0,
+        "totalWithdrawn": 28900,
+        "anyInserted": false,        // false = all rods out; render an "ARO" note
+        "note": "CRD positions defined by CRD.ARO ..."
+      }
     }
   ],
 
