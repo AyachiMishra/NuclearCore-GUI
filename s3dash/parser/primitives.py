@@ -284,9 +284,9 @@ def parse_bordered_grid(lines: list[str], start: int, end: int) -> BorderedGrid 
             for depth, line in enumerate(block):
                 for col, (a, b) in zip(grid.cols, spans):
                     text = line[a:b].strip(": ").strip()
-                    # The legend is printed over a cell slot on the first
-                    # band; it names a field and is not assembly data.
-                    if text and _LEGEND_RE.fullmatch(text):
+                    # The legend is printed over an edge cell slot; it names a
+                    # field and is not assembly data.
+                    if text and _looks_like_legend(text):
                         text = ""
                     cell = grid.cells.setdefault((row_index, col), [])
                     while len(cell) <= depth:
@@ -348,6 +348,20 @@ def parse_bordered_grid(lines: list[str], start: int, end: int) -> BorderedGrid 
     grid.rows = sorted(set(grid.rows))
     grid.cells = {k: v for k, v in grid.cells.items() if any(x for x in v)}
     return grid if grid.cells else None
+
+
+_LEGEND_CELL_RE = re.compile(r"(?:FUE\.[A-Z]{0,3}|TYP,[A-Z]{0,3}|[A-Z]{2,4}[.,][A-Z]{0,3})")
+
+
+def _looks_like_legend(text: str) -> bool:
+    """True when a cell holds legend text rather than assembly data.
+
+    The legend is printed into an edge cell slot and gets clipped by the cell
+    width (``FUE.LAB`` -> ``FUE.LA``), so an exact match is not enough. Every
+    real site label, serial and type field contains a digit, which makes the
+    absence of digits a reliable discriminator.
+    """
+    return not any(ch.isdigit() for ch in text) and bool(_LEGEND_CELL_RE.fullmatch(text))
 
 
 def _is_grid_rule(line: str) -> bool:
