@@ -98,12 +98,51 @@ against previously-parsed output:
 
 - Quarter-core expansion yields exactly the assembly count the Input Summary
   reports — 241, 241 and 193.
-- Per-fuel-type inventory matches the `Fueled Segments` equivalent-assembly
-  column exactly (56 + 64 + 56 + 65 = 241).
+- Per-fuel-type counts match the `Assembly Physical Descriptions` block, and
+  the height-weighted totals reproduce the `Fueled Segments` equivalent-
+  assembly column (56 assemblies × 351/381 cm = 51.591).
 - Generated site labels match all 241 `FMAP` labels.
 - k-eff from the Output Summary agrees with the independently printed
   depletion table at every step.
 - Depletion rows equal state-point counts (31 / 28 / 32).
+- Rod positions equal `total withdrawn ÷ steps per rod` (289 / 289 / 225).
+
+### Independent verification
+
+`verify/` re-extracts values straight from the raw bytes using a separate
+implementation, deliberately written with a different technique per layout so
+a shared bug cannot hide. It compared **147,151 values** across the three
+files and now reports **zero discrepancies**:
+
+| File | Values compared |
+|---|---:|
+| `case_002495.out` | 46,104 |
+| `apr1400.c02.out` | 41,560 |
+| `9074.out` | 59,487 |
+
+That includes all 53,340 printed map cells across 91 state points and 428 map
+blocks, plus ~57,000 rotational-image checks on the expanded quarter cores.
+
+Getting there took **twelve** parser fixes. Every one was invisible in the
+original file and only surfaced because a second and third file, or an
+independent extractor, disagreed. The most consequential:
+
+- **Cycle length was overstated by 0.94 GWd/MT.** An `ITE.SRC 'EOLEXP'`
+  search prints trial pages whose banner exposure is not the converged
+  answer; `case_002495` step 30 published 25.050 instead of 24.112. The
+  listing states the right value five lines later and again in the depletion
+  table.
+- **`FUE.TYP` numbers were being read as segment numbers.** They coincide in
+  the APR1400 decks and do not in BEAVRS, where it gave most of the core the
+  wrong enrichment (3.10 w/o read as 2.40).
+- **Exposure unit was inferred from the wrong page**, labelling an EFPD run
+  as GWd/MT.
+- **Segments with no burnable poison print `------`**; requiring digits there
+  silently dropped 107 of BEAVRS's 193 assemblies.
+- **`P**2` axial values landed under the wrong column** — a wrong number
+  under a plausible name, the worst failure mode for a diagnostic tool.
+
+Full findings in `verify/VERIFICATION_REPORT.md`.
 
 ```bash
 python -m pytest tests/ -q
@@ -186,8 +225,25 @@ through the navigation tree and the raw section viewer.
 
 ## Known limits
 
-- One file at a time; there is no run-to-run comparison view.
-- 3D runs are read per axial node for the core-average axial profile;
-  per-assembly axial detail requires the run to have edited `3RPF`-class maps.
-- BWR listings parse structurally (the geometry and primitives are shared),
-  but only PWR files were available to verify against.
+Stated plainly, because a diagnostic tool that overstates its own coverage is
+worse than one that admits gaps.
+
+- **One file at a time**; there is no run-to-run comparison view.
+- **No real-file coverage for octant or mirror symmetry.** Both paths are
+  implemented and unit-tested against synthetic cores, but all three sample
+  files are rotational — quarter or full. Check any octant or mirror listing
+  with `python -m s3dash.check` before trusting its core map.
+- **No BWR file was available.** BWR listings should parse structurally, since
+  the geometry resolution and layout primitives are shared, but this is
+  untested against real output.
+- **No file with maps split across a page break.** Wide cores can force a map
+  to continue on the next page; the stitching code exists but no sample
+  exercises it.
+- **Rods are fully withdrawn in every sample.** The partially-inserted branch
+  is unit-tested only.
+- 3D runs give the core-average axial profile; per-assembly axial detail needs
+  the run to have edited `3RPF`-class maps.
+- `QMAP` and `BMAP` are parsed but not published in the payload.
+- The `*` that appears in some `PIN.EDT 2PLO` cells (e.g. `14*13`) is
+  preserved byte-for-byte but its meaning is not documented in the manual, so
+  it is not interpreted.
