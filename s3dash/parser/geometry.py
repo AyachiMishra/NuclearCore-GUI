@@ -116,6 +116,22 @@ def parse_geometry(lines: list[str], limit: int = 4000) -> Geometry:
     window = lines[: min(len(lines), limit)]
     blob = "\n".join(window)
 
+    # Raw cards first, so the echo block can override them field by field.
+    # Doing it the other way round would need "was this defaulted?" tracking:
+    # kd defaults to 1 and ihave to 4, both truthy, so a "did we get a value?"
+    # test on the attribute cannot distinguish a default from a real read.
+    m = _DIMCAL_RE.search(blob)
+    if m:
+        parts = [p for p in m.group(1).replace(",", " ").split() if p.isdigit()]
+        if len(parts) > 0:
+            geom.kd = int(parts[0])
+        if len(parts) > 1:
+            geom.ihave = int(parts[1])
+        if len(parts) > 2:
+            geom.if2x2 = int(parts[2])
+        if len(parts) > 3:
+            geom.nref = int(parts[3])
+
     for attr, pattern in _DIM_FIELDS.items():
         m = re.search(pattern, blob)
         if m:
@@ -138,18 +154,6 @@ def parse_geometry(lines: list[str], limit: int = 4000) -> Geometry:
             geom.iafull = int(m.group(2))
     elif re.search(r"'DIM\.BWR'", blob):
         geom.reactor_type = "BWR"
-
-    # Fall back to the raw card when the echo block is absent.
-    if not geom.kd or geom.ihave is None:
-        m = _DIMCAL_RE.search(blob)
-        if m:
-            parts = [p.strip() for p in m.group(1).replace(",", " ").split()]
-            if parts and not geom.kd:
-                geom.kd = int(parts[0])
-            if len(parts) > 1:
-                geom.ihave = int(parts[1])
-            if len(parts) > 2:
-                geom.if2x2 = int(parts[2])
 
     m = _CORSYM_RE.search(blob)
     if m:
