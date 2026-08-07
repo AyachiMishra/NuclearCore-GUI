@@ -1,7 +1,6 @@
 # Vision: Nuclear Core Analysis
 
-A web dashboard that turns a SIMULATE-3 output file into something you can
-actually look at.
+A web dashboard that turns a SIMULATE-3 output file into something readable 😌.
 
 ---
 
