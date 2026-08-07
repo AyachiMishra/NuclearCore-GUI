@@ -189,7 +189,7 @@ server as above.
 
 ## How it works
 
-The hard part is not drawing the core map. It is reading the file reliably.
+The hard part is not drawing the core map. It is to read(parse) the file in the first place 🙂.
 
 ### The problem with the obvious approach
 
@@ -227,7 +227,7 @@ because its *shape* is already understood. That is not a theoretical claim: one
 of the three test files contains two variables the other two do not, and both
 parse with no code written for them.
 
-### Geometry is read, never assumed
+### Geometry is read and never assumed 👍
 
 The same applies to the core itself. How wide it is, whether the file prints
 the whole core or just a quarter of it, whether results are two- or
@@ -237,8 +237,8 @@ from that, so nothing in the code assumes a 17×17 core or a quarter-core file.
 
 ### What that buys you
 
-Development used three listings chosen because they disagree on **every axis
-that matters**:
+Development involved using three listings which were chosen because they disagree on **every axis
+that holds importance**:
 
 | | APR1400 run 1 | APR1400 run 2 | BEAVRS |
 |---|---|---|---|
