@@ -1,4 +1,4 @@
-# SIMULATE-3 VISION:  Analysis Dashboard
+# Vision: Nuclear Core Analysis
 
 Load a SIMULATE-3 output listing (Eg: run192832.out) and understand it without reading eleven
 thousand lines of fixed-width Fortran print.
@@ -6,6 +6,9 @@ thousand lines of fixed-width Fortran print.
 Upload a `.out` file and get an interactive core map, per-assembly inspection,
 depletion and axial charts, a symmetry/diagnostics review, and a navigable
 index of every section in the file with its original text one click away.
+
+Three views — **Core map**, **Plots**, and **Sections & Search** — sharing one
+loaded run, with exports to JSON, CSV, PNG and a formatted PDF report.
 
 ![Core map](docs/img/core-map.svg)
 
@@ -58,6 +61,19 @@ sample_data/
 You never need to do that to use the tool — the upload button reads any file
 you point it at, whatever it is named.
 
+### Exports
+
+| Format | What it is |
+|---|---|
+| **PDF report** | Eight pages: cover, linked contents with page numbers, run summary, core map, every depletion step tabulated, axial distribution (3D runs), inventory and segments, diagnostics with the symmetry breakdown, provenance. Sections that do not apply are omitted rather than left empty. |
+| **PNG** | Any chart or the core map, rendered at 2× |
+| **CSV** | The assembly table for the current step |
+| **JSON** | The complete parsed payload |
+| **Print** | Every view as one document |
+
+The PDF is also available directly:
+`GET /api/run/{runId}/report.pdf?step=N`
+
 ### Sharing a result
 
 To hand someone a finished analysis without asking them to install anything:
@@ -105,8 +121,9 @@ data exists — follows from those.
 
 ### Verified generality
 
-The three bundled files disagree on every axis that matters, which is why all
-three are kept as fixtures:
+It was developed against three listings that disagree on every axis that
+matters. They are not committed here (see *Bringing your own listings*), but
+they are what every claim below was checked against:
 
 | | `case_002495` | `apr1400.c02` | `9074` |
 |---|---|---|---|

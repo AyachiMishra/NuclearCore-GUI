@@ -1,5 +1,12 @@
-﻿fastapi>=0.110
+# Web application
+fastapi>=0.110
 uvicorn[standard]>=0.27
 python-multipart>=0.0.9
+
+# PDF report generation
+reportlab>=4.0
+
+# Tests
 pytest>=8.0
 httpx>=0.27
+pypdf>=5.0
