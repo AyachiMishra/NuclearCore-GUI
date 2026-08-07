@@ -44,7 +44,8 @@ run contains hundreds of them.
   one click away
 
 Nothing is recomputed or estimated. Every number shown is read straight out of
-the listing.
+the listing (the .out file), thus ensuring numbers don’t get invented out of thin air<img width="480" height="480" alt="image" src="https://github.com/user-attachments/assets/2e137aff-4331-4e98-8fb5-4a73273dd6e7" />
+.
 
 ![Core map](docs/img/core-map.svg)
 
