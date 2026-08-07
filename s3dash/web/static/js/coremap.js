@@ -172,6 +172,20 @@ const PAD = 4;
 const HEAD_W = 62;
 const HEAD_H = 54;
 
+/* How big is one cell on screen?
+ *
+ * The map keeps its aspect ratio, so whichever of the two axes runs out first
+ * decides the scale. Width alone was enough while the card's height was always
+ * whatever the map needed — now that a card can be dragged short, a wide-but-
+ * squat box would otherwise be told it had room for text it cannot show.
+ * Height is only consulted when the host actually has one to give. */
+function cellPixels(host, w, h) {
+  const boxW = (host && host.clientWidth) || 640;
+  const boxH = (host && host.clientHeight) || 0;
+  const scale = boxH > 0 ? Math.min(boxW / w, boxH / h) : boxW / w;
+  return scale * CELL;
+}
+
 let hostEl = null;
 let legendEl = null;
 let tooltipEl = null;
@@ -232,12 +246,11 @@ export function renderCoreMap() {
   const W = HEAD_W + n * CELL + PAD;
   const H = HEAD_H + n * CELL + PAD;
 
-  /* How big is one cell on screen? That decides how much text fits.
-   * The site label is the survivor: it identifies the position, and the value
-   * is still one hover (or the inspector) away. Below ~15 px a cell is a pure
-   * colour field and any glyph would be noise. */
-  const boxW = hostEl.clientWidth || 640;
-  const pxCell = (boxW / W) * CELL;
+  /* How much text fits in a cell at this size? The site label is the survivor:
+   * it identifies the position, and the value is still one hover (or the
+   * inspector) away. Below ~15 px a cell is a pure colour field and any glyph
+   * would be noise. */
+  const pxCell = cellPixels(hostEl, W, H);
   const showLabel = pxCell >= 15;
   const showValue = pxCell >= 26;
   // Tighter decimals on small cells so "1.23" fits where "1.234" would not.
@@ -424,7 +437,7 @@ function renderCrdMap(layer) {
 
   const W = HEAD_W + nC * CELL + PAD;
   const H = HEAD_H + nR * CELL + PAD;
-  const pxCell = ((hostEl.clientWidth || 640) / W) * CELL;
+  const pxCell = cellPixels(hostEl, W, H);
   const showText = pxCell >= 25;
 
   const parts = [];

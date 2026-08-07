@@ -44,7 +44,14 @@ export const state = {
   theme: 'auto', // 'auto' | 'light' | 'dark'
   view: 'map', // 'map' | 'plots' | 'sections' — mirrors location.hash
   diagSort: { key: 'severity', dir: 1 },
+  // null = show everything; otherwise a severity ('ERROR' | 'WARNING' |
+  // 'CAUTION' | 'NOTE') or the 'SYMMETRY' category.
+  diagFilter: null,
 };
+
+/** Severities the diagnostics list can be narrowed to, plus the one category
+ *  that is not a severity at all. */
+export const DIAG_FILTERS = ['ERROR', 'WARNING', 'CAUTION', 'NOTE', 'SYMMETRY'];
 
 /* ------------------------------------------------------------------ pub/sub */
 
@@ -109,6 +116,7 @@ export function installPayload(payload, runId) {
       hits: null,
       hitLine: null,
       section: null,
+      diagFilter: null,
     },
     'payload'
   );

@@ -26,7 +26,15 @@ import {
   fmtFixed,
   esc,
 } from './state.js';
-import { listSamples, parseSample, parseUpload, searchText, exportJsonUrl, exportCsvUrl } from './api.js';
+import {
+  listSamples,
+  parseSample,
+  parseUpload,
+  searchText,
+  exportJsonUrl,
+  exportCsvUrl,
+  fetchReportPdf,
+} from './api.js';
 import { initCoreMap, renderCoreMap, hideTooltip } from './coremap.js';
 import {
   initCharts,
@@ -35,11 +43,13 @@ import {
   renderHistogram,
   renderInventoryChart,
   renderCpuChart,
+  exportHostPng,
   DEPLETION_METRICS,
 } from './charts.js';
 import { initRouter, goTo, applyView } from './views.js';
 import {
   renderHeader,
+  renderStatusBadge,
   renderInspector,
   renderDiagnostics,
   renderInventory,
@@ -134,16 +144,12 @@ function openLoadDialog() {
 
 /* ---------------------------------------------------------------- toolbar */
 
-function buildToolbar() {
-  const p = state.payload;
-  $('#toolbar').hidden = !p;
-  $('#layout').hidden = !p;
-  $('#view-nav').hidden = !p;
-  $('#hero').hidden = !!p;
-  if (!p) return;
+/* The layer control lives in two card headers now — the core map's and the
+ * layer-distribution chart's — so both are filled from the same list and kept
+ * in step with each other. */
+const LAYER_SELECTS = ['#layer-select', '#layer-select-hist'];
 
-  /* layers ------------------------------------------------------------- */
-  const sel = $('#layer-select');
+function fillLayerSelects(p) {
   const layers = buildLayers(p);
   const values = layers.filter((l) => l.kind === 'value' || l.kind === 'text');
   const cats = layers.filter((l) => l.kind === 'category');
@@ -152,10 +158,34 @@ function buildToolbar() {
     `<option value="${esc(l.id)}"${l.id === state.layer ? ' selected' : ''}>` +
     `${esc(l.label)}${l.unit ? ` (${esc(l.unit)})` : ''}${l.kind === 'text' ? ' — text' : ''}` +
     `${l.code ? ` · ${esc(l.code)}` : ''}</option>`;
-  sel.innerHTML =
+  const html =
     (values.length ? `<optgroup label="State-point edits">${values.map(opt).join('')}</optgroup>` : '') +
     (cats.length ? `<optgroup label="Loading pattern">${cats.map(opt).join('')}</optgroup>` : '') +
     (rods.length ? `<optgroup label="Core state">${rods.map(opt).join('')}</optgroup>` : '');
+  for (const sel of LAYER_SELECTS) {
+    const el = $(sel);
+    if (el) el.innerHTML = html;
+  }
+}
+
+function syncLayerSelects() {
+  for (const sel of LAYER_SELECTS) {
+    const el = $(sel);
+    if (el && el.value !== state.layer) el.value = state.layer;
+  }
+}
+
+function buildToolbar() {
+  const p = state.payload;
+  $('#toolbar').hidden = !p;
+  $('#layout').hidden = !p;
+  $('#view-nav').hidden = !p;
+  $('#hero').hidden = !!p;
+  $('#export-menu').hidden = !p;
+  if (!p) return;
+
+  /* layers ------------------------------------------------------------- */
+  fillLayerSelects(p);
 
   /* step slider -------------------------------------------------------- */
   const n = (p.statePoints || []).length;
@@ -415,14 +445,10 @@ function wireControls() {
   $('#btn-load').addEventListener('click', openLoadDialog);
   $('#load-close').addEventListener('click', () => $('#load-dialog').close());
 
-  $('#status-badge').addEventListener('click', () => {
-    goTo('map');
-    setTab('diagnostics');
-    scrollTo($('#panel-diagnostics'));
-    $('#tab-diagnostics').focus();
-  });
-
-  $('#layer-select').addEventListener('change', (e) => update({ layer: e.target.value }, 'layer'));
+  for (const sel of LAYER_SELECTS) {
+    const el = $(sel);
+    if (el) el.addEventListener('change', (e) => update({ layer: e.target.value }, 'layer'));
+  }
 
   $('#step-slider').addEventListener('input', (e) => update({ stepIndex: Number(e.target.value) }, 'step'));
   $('#step-prev').addEventListener('click', () => stepBy(-1));
@@ -445,16 +471,27 @@ function wireControls() {
     update({ flaggedOnly: e.target.checked }, 'flagged', 'filters')
   );
 
+  // Only the export menu gets the hover treatment: the filter menu is a
+  // multi-select the reader dwells in, and opening that in passing is a
+  // nuisance rather than a shortcut.
+  wireMenu($('#export-menu'));
+
   $('#exp-json').addEventListener('click', () => {
     if (!state.runId) return;
     download(exportJsonUrl(state.runId));
+    closeMenu($('#export-menu'));
   });
   $('#exp-csv').addEventListener('click', () => {
     const sp = statePoint();
     if (!state.runId || !sp) return;
     download(exportCsvUrl(state.runId, sp.step));
+    closeMenu($('#export-menu'));
   });
-  $('#exp-print').addEventListener('click', () => window.print());
+  $('#exp-pdf').addEventListener('click', exportPdf);
+  $('#exp-print').addEventListener('click', () => {
+    closeMenu($('#export-menu'));
+    window.print();
+  });
 
   for (const name of ['inspector', 'diagnostics', 'inventory']) {
     $(`#tab-${name}`).addEventListener('click', () => setTab(name));
@@ -497,6 +534,14 @@ function wireControls() {
 
   // symmetry members + diagnostic line links live in both right-hand panels
   document.addEventListener('click', (e) => {
+    const png = e.target.closest('[data-png]');
+    if (png) { exportPng(png); return; }
+
+    // Status-badge counters and the panel's own severity chips are the same
+    // control in two places: they filter the diagnostics list.
+    const df = e.target.closest('[data-diag-filter]');
+    if (df) { applyDiagFilter(df.dataset.diagFilter); return; }
+
     const rc = e.target.closest('[data-select-rc]');
     if (rc) {
       const idx = (state.payload.assemblyIndex || {})[rc.dataset.selectRc];
@@ -565,6 +610,229 @@ function download(url) {
   a.remove();
 }
 
+/* ------------------------------------------------------------------- menus
+ *
+ * A <details> menu opens on click and on Enter/Space for free. Hover is added
+ * on top — with a close delay, so crossing the 2 px seam to the panel does not
+ * dismiss it — and keyboard focus opens it too, but only when the focus ring
+ * is actually showing: without that guard a mouse click would open the menu on
+ * focus and immediately close it again on the click.
+ */
+function closeMenu(details) {
+  if (details) details.open = false;
+}
+
+function wireMenu(details) {
+  if (!details) return;
+  const summary = details.querySelector('summary');
+  const body = details.querySelector('.menu-body');
+  let timer = 0;
+  /* Narrow layouts pin the panel to the viewport (see app.css) because the
+   * header stops being a positioned ancestor there — which leaves exactly one
+   * number for JS: where the button currently is. */
+  const place = () => {
+    if (!body) return;
+    const narrow = typeof matchMedia === 'function' && matchMedia('(max-width: 720px)').matches;
+    body.style.top = narrow ? `${Math.round(summary.getBoundingClientRect().bottom + 4)}px` : '';
+  };
+  const open = () => { clearTimeout(timer); place(); details.open = true; };
+  const closeSoon = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { details.open = false; }, 220);
+  };
+
+  /* Click keeps the native <details> toggle. Enter and Space are driven here
+   * instead: a <summary> carrying role="button" does not reliably activate on
+   * a key press, and "reachable by keyboard" is not negotiable for the only
+   * way out of this app with a file. The stamp stops a native activation that
+   * does fire from undoing the toggle a moment later. */
+  let keyToggledAt = 0;
+  summary.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+    e.preventDefault();
+    keyToggledAt = Date.now();
+    clearTimeout(timer);
+    if (!details.open) place();
+    details.open = !details.open;
+  });
+  summary.addEventListener('click', () => {
+    clearTimeout(timer);
+    if (Date.now() - keyToggledAt < 400) return;
+    if (!details.open) place();
+  });
+  // role="button" hides the disclosure state a bare <summary> would expose.
+  const syncExpanded = () => summary.setAttribute('aria-expanded', String(details.open));
+  details.addEventListener('toggle', syncExpanded);
+  syncExpanded();
+  details.addEventListener('mouseenter', open);
+  details.addEventListener('mouseleave', closeSoon);
+  // Escape hands focus back to the button, and a keyboard-driven focus is
+  // exactly what opens this menu — so that one move has to be exempt or the
+  // menu springs straight back open.
+  let returning = false;
+  summary.addEventListener('focus', () => {
+    if (returning) return;
+    let visible = false;
+    try { visible = summary.matches(':focus-visible'); } catch (_) { visible = false; }
+    if (visible) open();
+  });
+  details.addEventListener('focusout', () => {
+    // A focusout fires before the new element takes focus, so ask afterwards.
+    setTimeout(() => {
+      if (!details.contains(document.activeElement)) details.open = false;
+    }, 0);
+  });
+  details.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();
+    clearTimeout(timer);
+    details.open = false;
+    returning = true;
+    summary.focus(); // focus() dispatches synchronously, so this window is tight
+    returning = false;
+  });
+  document.addEventListener('click', (e) => {
+    if (!details.contains(e.target)) details.open = false;
+  });
+}
+
+/* ---------------------------------------------------------------- exports */
+
+/** A filename stem from the listing, safe for a Content-Disposition-free save. */
+function fileStem() {
+  const name = ((state.payload || {}).meta || {}).fileName || 'run';
+  return String(name).replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_') || 'run';
+}
+
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/* The PDF is built server-side and takes a second or three, so the menu item
+ * carries the wait itself and a backend {"detail": ...} comes back as the same
+ * error toast every other failure uses. */
+async function exportPdf() {
+  const btn = $('#exp-pdf');
+  const sp = statePoint();
+  if (!state.runId || btn.disabled) return;
+  if (typeof fetchReportPdf !== 'function') {
+    toast('PDF reports need the dashboard server — this is a standalone snapshot.', 'error');
+    return;
+  }
+  const note = btn.querySelector('.menu-item-note');
+  const wasNote = note ? note.textContent : '';
+  btn.disabled = true;
+  btn.classList.add('is-busy');
+  if (note) note.textContent = 'building the report…';
+  try {
+    const { blob, filename } = await fetchReportPdf(state.runId, sp ? sp.step : 0);
+    saveBlob(blob, filename || `${fileStem()}.report.pdf`);
+    toast(`Saved ${filename || 'the PDF report'}`);
+    closeMenu($('#export-menu'));
+  } catch (err) {
+    toast(err.message || 'The PDF report could not be built.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('is-busy');
+    if (note) note.textContent = wasNote;
+  }
+}
+
+/** Rasterise the figure a button points at and save it. */
+async function exportPng(btn) {
+  const host = document.getElementById(btn.dataset.png);
+  const name = `${fileStem()}-${btn.dataset.pngName || 'chart'}.png`;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Rendering…';
+  try {
+    await exportHostPng(host, name);
+    toast(`Saved ${name}`);
+  } catch (err) {
+    toast(err.message || 'That figure could not be exported.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+/* -------------------------------------------------------- diagnostics filter */
+
+/** Narrow the diagnostics list to one severity or category. An empty value —
+ *  or clicking the active one again — clears it. Always lands the reader on
+ *  the panel it just filtered. */
+function applyDiagFilter(raw) {
+  const wanted = raw || null;
+  const next = wanted && state.diagFilter === wanted ? null : wanted;
+  update({ diagFilter: next, tab: 'diagnostics' }, 'diag', 'tab');
+  goTo('map');
+  requestAnimationFrame(() => scrollTo($('#panel-diagnostics')));
+}
+
+/* ------------------------------------------------------------ resizable cards
+ *
+ * `resize` does the dragging; this only reacts to it. A card that has been
+ * given a size gets `is-sized`, which hands its inner scroller the room, and
+ * anything measured in pixels — the core map's label thresholds, the charts —
+ * is redrawn once the width has actually moved.
+ */
+const CHART_RENDERERS = {
+  'chart-depletion': renderDepletionChart,
+  'chart-axial': renderAxialChart,
+  'chart-hist': renderHistogram,
+  'chart-inventory': renderInventoryChart,
+  'chart-cpu': renderCpuChart,
+};
+
+let redrawQueue = null;
+let redrawRaf = 0;
+
+function scheduleRedraw(card) {
+  if (!redrawQueue) redrawQueue = new Set();
+  redrawQueue.add(card);
+  if (redrawRaf) return;
+  redrawRaf = requestAnimationFrame(() => {
+    redrawRaf = 0;
+    const cards = redrawQueue;
+    redrawQueue = null;
+    for (const card of cards) {
+      if (card.hidden || !card.isConnected) continue;
+      if (card.querySelector('#coremap')) renderCoreMap();
+      for (const host of card.querySelectorAll('.chart-host')) {
+        const fn = CHART_RENDERERS[host.id];
+        if (fn) fn(host);
+      }
+    }
+  });
+}
+
+function initResizable() {
+  if (!('ResizeObserver' in window)) return;
+  const widths = new WeakMap();
+  const ro = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const card = entry.target;
+      card.classList.toggle('is-sized', !!(card.style.height || card.style.width));
+      const w = Math.round(entry.contentRect.width);
+      const was = widths.get(card);
+      widths.set(card, w);
+      // Skip the first observation and anything under a few pixels: a redraw
+      // inside a resize callback that fires on its own output is a loop.
+      if (was === undefined || Math.abs(was - w) < 4) continue;
+      scheduleRedraw(card);
+    }
+  });
+  document.querySelectorAll('[data-resizable]').forEach((el) => ro.observe(el));
+}
+
 function drawCharts() {
   renderDepletionChart($('#chart-depletion'));
   renderAxialChart($('#chart-axial'));
@@ -623,6 +891,8 @@ function flush(keys) {
     if (onMap()) renderCoreMap();
     renderCoreMapTitle();
   }
+  // Two headers carry the layer control; whichever was used, both must agree.
+  if (any('layer')) syncLayerSelects();
   if (any('step')) {
     renderStepReadout();
     if (onSections()) renderNavTree();
@@ -635,7 +905,10 @@ function flush(keys) {
   if (onMap() && any('step', 'layer', 'selection', 'axial')) renderInspector();
   if (any('filters', 'flagged')) renderFilterPill();
   if (any('tab', 'selection')) renderTabs();
-  if (onMap() && any('diag')) renderDiagnostics();
+  if (any('diag')) {
+    renderStatusBadge(); // the header counters carry the pressed state
+    if (onMap()) renderDiagnostics();
+  }
   if (onSections() && any('tree', 'section')) renderNavTree();
   if (onSections() && any('section')) renderSectionViewer();
   // Text hits live in the left rail, which every view shows — a search run from
@@ -677,6 +950,15 @@ async function boot() {
   initCoreMap($('#coremap'), $('#coremap-legend'), $('#tooltip'));
   initCharts($('#chart-depletion'), $('#chart-axial'));
   wireControls();
+  initResizable();
+
+  // A standalone snapshot carries the parsed results but no server, so there
+  // is nothing to render a PDF. Say so by not offering it.
+  if (window.__S3_BUNDLE__) {
+    const pdf = $('#exp-pdf');
+    if (pdf) pdf.hidden = true;
+  }
+
   subscribe(onChange);
   initRouter(onEnterView);
 

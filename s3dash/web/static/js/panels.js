@@ -29,6 +29,14 @@ const $ = (sel) => document.querySelector(sel);
 
 const SEVERITY_RANK = { ERROR: 0, WARNING: 1, CAUTION: 2, NOTE: 3 };
 
+const FILTER_LABEL = {
+  ERROR: 'errors',
+  WARNING: 'warnings',
+  CAUTION: 'cautions',
+  NOTE: 'notes',
+  SYMMETRY: 'symmetry violations',
+};
+
 /* ------------------------------------------------------------------- header */
 
 export function renderHeader() {
@@ -124,29 +132,7 @@ export function renderHeader() {
     chip.title = 'No termination line was found in this listing.';
   }
 
-  const level = (s.level || 'OK').toUpperCase();
-  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-  const counts = [];
-  if (s.symmetryViolations) counts.push(plural(s.symmetryViolations, 'symmetry violation'));
-  if (s.errors) counts.push(plural(s.errors, 'error'));
-  if (s.warnings) counts.push(plural(s.warnings, 'warning'));
-  if (!counts.length && s.cautions) counts.push(plural(s.cautions, 'caution'));
-  if (!counts.length && s.notes) counts.push(plural(s.notes, 'note'));
-
-  const full = [
-    plural(s.errors || 0, 'error'),
-    plural(s.warnings || 0, 'warning'),
-    plural(s.cautions || 0, 'caution'),
-    plural(s.notes || 0, 'note'),
-    plural(s.symmetryViolations || 0, 'symmetry violation'),
-  ].join(', ');
-
-  badge.hidden = false;
-  badge.className = `status-badge level-${level.toLowerCase()}`;
-  badge.innerHTML =
-    `<span class="status-dot" aria-hidden="true"></span><span class="status-level">${esc(level)}</span>` +
-    (counts.length ? `<span class="status-counts">${esc(counts.join(' · '))}</span>` : '');
-  badge.title = `${full} — click to open the diagnostics panel`;
+  renderStatusBadge();
 
   const pn = p.parseNotes || [];
   if (pn.length) {
@@ -158,6 +144,61 @@ export function renderHeader() {
     notes.hidden = true;
     notes.innerHTML = '';
   }
+}
+
+/* Header status badge.
+ *
+ * Every counter on it is a way in, not just a number: clicking one opens the
+ * diagnostics panel already narrowed to that severity, and clicking it again
+ * clears the filter. Which is why this is a group of buttons rather than the
+ * single button it used to be. */
+export function renderStatusBadge() {
+  const badge = $('#status-badge');
+  const p = state.payload;
+  if (!badge) return;
+  if (!p) { badge.hidden = true; badge.innerHTML = ''; return; }
+
+  const s = p.status || {};
+  const level = (s.level || 'OK').toUpperCase();
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const full = [
+    plural(s.errors || 0, 'error'),
+    plural(s.warnings || 0, 'warning'),
+    plural(s.cautions || 0, 'caution'),
+    plural(s.notes || 0, 'note'),
+    plural(s.symmetryViolations || 0, 'symmetry violation'),
+  ].join(', ');
+
+  const segs = [
+    `<button type="button" class="status-seg status-level" data-diag-filter="" ` +
+      `aria-pressed="${state.diagFilter === null}" ` +
+      `title="${esc(full)} — open the diagnostics panel unfiltered">` +
+      `<span class="status-dot" aria-hidden="true"></span>${esc(level)}</button>`,
+  ];
+
+  const counters = [
+    ['SYMMETRY', s.symmetryViolations, 'symmetry violation'],
+    ['ERROR', s.errors, 'error'],
+    ['WARNING', s.warnings, 'warning'],
+    ['CAUTION', s.cautions, 'caution'],
+    ['NOTE', s.notes, 'note'],
+  ].filter(([, n]) => n);
+  // The loud two always earn their place; cautions and notes only when nothing
+  // louder is present, so the header stays a summary rather than a list.
+  const loud = counters.filter(([k]) => k !== 'CAUTION' && k !== 'NOTE');
+  for (const [key, n, word] of loud.length ? loud : counters) {
+    const on = state.diagFilter === key;
+    segs.push(
+      `<button type="button" class="status-seg status-count" data-diag-filter="${key}" ` +
+        `aria-pressed="${on}" title="Show only the ${esc(plural(n, word))} in the ` +
+        `diagnostics panel">${esc(plural(n, word))}</button>`
+    );
+  }
+
+  badge.hidden = false;
+  badge.className = `status-badge level-${level.toLowerCase()}`;
+  badge.innerHTML = segs.join('');
+  badge.removeAttribute('title');
 }
 
 /* ---------------------------------------------------------------- inspector */
@@ -517,9 +558,21 @@ export function renderDiagnostics() {
   const countPill = $('#tab-diag-count');
   if (!p) { host.innerHTML = ''; if (countPill) countPill.textContent = ''; return; }
 
-  const diags = (p.diagnostics || []).slice();
+  const all = (p.diagnostics || []).slice();
   const groups = p.symmetryGroups || [];
-  if (countPill) countPill.textContent = String(diags.length + groups.length);
+  if (countPill) countPill.textContent = String(all.length + groups.length);
+
+  /* The counters above the list are filters. A severity narrows the table and
+   * drops the symmetry cards; SYMMETRY does the reverse. Clicking the active
+   * one again clears it. */
+  const filter = state.diagFilter;
+  const bySeverity = !!filter && filter !== 'SYMMETRY';
+  const diags = bySeverity
+    ? all.filter((d) => String(d.severity || '').toUpperCase() === filter)
+    : filter === 'SYMMETRY'
+    ? []
+    : all;
+  const showGroups = !bySeverity;
 
   const { key, dir } = state.diagSort;
   diags.sort((x, y) => {
@@ -546,12 +599,34 @@ export function renderDiagnostics() {
       sevChip('WARNING', s.warnings) +
       sevChip('CAUTION', s.cautions) +
       sevChip('NOTE', s.notes) +
-      `<span class="sev-chip sev-sym">${s.symmetryViolations || 0} symmetry</span>` +
+      sevChip('SYMMETRY', s.symmetryViolations ?? groups.length, 'sym', 'symmetry violation') +
+      `</div>`
+  );
+
+  const total = all.length + groups.length;
+  const shown = diags.length + (showGroups ? groups.length : 0);
+  out.push(
+    `<div class="diag-filter-line${filter ? ' is-filtered' : ''}">` +
+      `<span>Showing ${shown} of ${total}` +
+      (filter ? ` — ${esc(FILTER_LABEL[filter] || filter)} only` : ' entries') +
+      `</span>` +
+      (filter
+        ? `<button type="button" class="btn btn-mini" data-diag-filter="" ` +
+          `title="Clear the diagnostics filter">Show all</button>`
+        : '') +
       `</div>`
   );
 
   if (!diags.length) {
-    out.push(`<div class="empty-note">No diagnostics were printed in this listing.</div>`);
+    out.push(
+      `<div class="empty-note">` +
+        (bySeverity
+          ? `No <b>${esc(FILTER_LABEL[filter] || filter)}</b> entries in this listing.`
+          : filter === 'SYMMETRY'
+          ? `Filtered to symmetry violations — the diagnostics table is hidden.`
+          : `No diagnostics were printed in this listing.`) +
+        `</div>`
+    );
   } else {
     const th = (k, label, cls = '') =>
       `<th class="${cls} sortable${key === k ? (dir > 0 ? ' sort-asc' : ' sort-desc') : ''}" ` +
@@ -585,14 +660,18 @@ export function renderDiagnostics() {
     );
   }
 
-  out.push(`<h3 class="panel-h">Symmetry groups <span class="pill">${groups.length}</span></h3>`);
-  if (!groups.length) {
-    out.push(`<div class="empty-note">No symmetry violations — every group passed the check.</div>`);
-  } else {
-    for (const g of groups) out.push(symmetryCard(g, null));
+  if (showGroups) {
+    out.push(`<h3 class="panel-h">Symmetry groups <span class="pill">${groups.length}</span></h3>`);
+    if (!groups.length) {
+      out.push(`<div class="empty-note">No symmetry violations — every group passed the check.</div>`);
+    } else {
+      for (const g of groups) out.push(symmetryCard(g, null));
+    }
   }
 
-  out.push(executionBlock(p));
+  // Execution is context, not a diagnostic: while a filter is on, the panel
+  // shows what was asked for and nothing else.
+  if (!filter) out.push(executionBlock(p));
   host.innerHTML = out.join('');
 }
 
@@ -636,11 +715,17 @@ function executionBlock(p) {
   );
 }
 
-function sevChip(label, count) {
+/** One clickable counter. Pressing it narrows the list to that severity or
+ *  category; pressing the pressed one clears the filter. */
+function sevChip(label, count, cls = label.toLowerCase(), word = label.toLowerCase()) {
   const n = count || 0;
-  return `<span class="sev-chip sev-${label.toLowerCase()}${n ? '' : ' is-zero'}">${n} ${esc(
-    label.toLowerCase()
-  )}${n === 1 ? '' : 's'}</span>`;
+  const on = state.diagFilter === label;
+  const text = `${n} ${word}${n === 1 ? '' : 's'}`;
+  return (
+    `<button type="button" class="sev-chip sev-${esc(cls)}${n ? '' : ' is-zero'}" ` +
+    `data-diag-filter="${esc(label)}" aria-pressed="${on}" ` +
+    `title="${on ? 'Clear this filter' : `Show only ${esc(text)}`}">${esc(text)}</button>`
+  );
 }
 
 /* ---------------------------------------------------------------- inventory */
@@ -998,6 +1083,12 @@ export function renderSectionViewer() {
 
 /* ------------------------------------------------------------- text results */
 
+/* Sections & Search hands the text hits their own column — but only once there
+ * are hits to put in it, otherwise the view would carry an empty gutter. */
+function showHitsColumn(on) {
+  document.body.classList.toggle('has-hits', !!on);
+}
+
 export function renderSearchResults() {
   const card = $('#search-card');
   const host = $('#search-results');
@@ -1006,13 +1097,15 @@ export function renderSearchResults() {
 
   if (state.searching) {
     card.hidden = false;
+    showHitsColumn(true);
     pill.textContent = '…';
     host.innerHTML = `<div class="empty-note">Searching the listing…</div>`;
     return;
   }
-  if (!r) { card.hidden = true; host.innerHTML = ''; return; }
+  if (!r) { card.hidden = true; showHitsColumn(false); host.innerHTML = ''; return; }
 
   card.hidden = false;
+  showHitsColumn(true);
   pill.textContent = `${r.count}${r.truncated ? '+' : ''}`;
   if (!r.hits.length) {
     host.innerHTML = `<div class="empty-note">No raw-text hits for “${esc(r.query || state.query)}”.</div>`;
