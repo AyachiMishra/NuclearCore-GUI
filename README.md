@@ -70,7 +70,7 @@ This is what most people do most of the time. It works, but you are
 reconstructing a 17×17 grid in your head from numbers printed in bands, for a
 quarter of the core, and mentally rotating it to fill in the rest. Comparing
 step 3 with step 27 means scrolling between two points thousands of lines
-apart. Spotting that one assembly out of 241 is anomalous is close to hopeless.
+apart. Spotting that one anomalous assembly out of 241 is close to hopeless.
 
 **2. Write a script for the run you happen to be looking at.**
 Faster the first time, but such scripts are written against one file. They
