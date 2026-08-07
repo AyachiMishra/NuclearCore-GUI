@@ -28,7 +28,7 @@ anchor them:
  10  0.831  1.180  0.891  0.963  0.899  1.296  0.932  1.388  0.978   10
 ```
 
-That is one map, at one moment in time, for one quarter of the core. A single
+The above is one map, at one moment in time, for one quarter of the core. A single
 run contains hundreds of them.
 
 **This tool reads that file and gives you:**
