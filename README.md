@@ -1,14 +1,51 @@
 # Vision: Nuclear Core Analysis
 
-Load a SIMULATE-3 output listing (Eg: run192832.out) and understand it without reading eleven
-thousand lines of fixed-width Fortran print.
+A web dashboard that turns a SIMULATE-3 output file into something you can
+actually look at.
 
-Upload a `.out` file and get an interactive core map, per-assembly inspection,
-depletion and axial charts, a symmetry/diagnostics review, and a navigable
-index of every section in the file with its original text one click away.
+---
 
-Three views — **Core map**, **Plots**, and **Sections & Search** — sharing one
-loaded run, with exports to JSON, CSV, PNG and a formatted PDF report.
+## What this is
+
+**SIMULATE-3** is a simulator used across the nuclear industry to model what
+happens inside a reactor core. Engineers use it to answer questions like *where
+is the power highest?*, *how evenly is the fuel burning up?*, and *how long will
+this fuel load last before the reactor can no longer sustain the reaction?*
+
+When it finishes, SIMULATE-3 writes its answers to a plain text file — a
+`.out` file, sometimes called a *listing*. That file is the problem this
+project solves.
+
+A typical listing is **ten to thirteen thousand lines** of fixed-width text
+laid out for a 1970s line printer. Everything is in there — but it is spread
+across two hundred numbered pages, the same map is reprinted for every one of
+thirty depletion steps, and the numbers sit in rigid columns with no headers to
+anchor them:
+
+```
+ PRI.STA 2RPF  - Assembly 2D RPF - Relative Power Fraction
+ **    9     10     11     12     13     14     15     16     17     **
+  9  1.155  0.831  1.245  1.314  0.836  1.092  1.323  0.899  0.947   09
+ 10  0.831  1.180  0.891  0.963  0.899  1.296  0.932  1.388  0.978   10
+```
+
+That is one map, at one moment in time, for one quarter of the core. A single
+run contains hundreds of them.
+
+**This tool reads that file and gives you:**
+
+- an **interactive core map** you can colour by power, burnup, fuel type,
+  control rods or any other quantity the run produced
+- a **click-anywhere inspector** showing everything known about one fuel
+  assembly
+- **charts** of how the core changes as the fuel burns up
+- a **diagnostics review** of every warning the simulator raised, including
+  which specific fuel positions failed its internal symmetry checks
+- a **searchable index** of every section in the file, with the original text
+  one click away
+
+Nothing is recomputed or estimated. Every number shown is read straight out of
+the listing.
 
 ![Core map](docs/img/core-map.svg)
 
@@ -19,38 +56,106 @@ loaded run, with exports to JSON, CSV, PNG and a formatted PDF report.
 
 <sub>Rendered from a SIMULATE-3 run of
 [BEAVRS](https://crpg.mit.edu/research/benchmark-for-evaluation-and-validation-of-reactor-simulations),
-MIT's openly published benchmark: a 15×15 full-core 3D PWR. Regenerate with
+an openly published MIT reactor benchmark. Regenerate with
 `python tools/make_readme_assets.py your_run.out`.</sub>
 
 ---
 
-## Running it
+## Why use this rather than what you already do
+
+In practice, people inspect these files in one of two ways. Both have real
+costs that this tool removes.
+
+**1. Open the file in a text editor and search.**
+This is what most people do most of the time. It works, but you are
+reconstructing a 17×17 grid in your head from numbers printed in bands, for a
+quarter of the core, and mentally rotating it to fill in the rest. Comparing
+step 3 with step 27 means scrolling between two points thousands of lines
+apart. Spotting that one assembly out of 241 is anomalous is close to hopeless.
+
+**2. Write a script for the run you happen to be looking at.**
+Faster the first time, but such scripts are written against one file. They
+hard-code the core width, assume the variables that run happened to print, and
+break silently on the next file — usually not by crashing, but by returning a
+*plausible wrong number*. This project began that way, and the section below on
+correctness lists fourteen bugs of exactly that kind that had to be found and
+fixed.
+
+**What this does differently:**
+
+| | |
+|---|---|
+| **Reads the text output directly** | No extra files, no simulator licence, no export step. If you have the `.out`, you can use this. |
+| **Does not break on unfamiliar files** | It parses the *shapes* SIMULATE-3 prints, not a fixed list of variable names — so a quantity it has never seen still comes through. See [How it works](#how-it-works). |
+| **Checks itself** | Listings state many quantities twice, in different places. The parser compares its results against the file's own arithmetic and reports any disagreement instead of quietly picking one. |
+| **Says when it does not know** | Anything it could not parse is reported, not skipped. A partial read is visible rather than silent. |
+| **Runs entirely on your machine** | No upload, no server, no network. Suitable for an air-gapped site. |
+
+Vendor tools exist for viewing SIMULATE-3 results, and where you have one it
+may well do more than this. They generally read the simulator's binary restart
+files rather than the text listing, and require the corresponding licence. This
+project is aimed at the common case where all you have is the `.out` file.
+
+---
+
+## Quick start
+
+You are reading this on GitHub. Here is the whole path from here to a running
+dashboard.
+
+**1. Install Python 3.10 or newer**, if you do not already have it, from
+[python.org/downloads](https://www.python.org/downloads/). On Windows, tick
+*"Add Python to PATH"* during installation.
+
+Check it worked by opening a terminal (Command Prompt or PowerShell on Windows,
+Terminal on macOS/Linux) and running:
+
+```bash
+python --version
+```
+
+**2. Download this repository.** Either use the green **`< > Code`** button at
+the top of this page → **Download ZIP**, then unzip it — or, if you have Git:
+
+```bash
+git clone https://github.com/AyachiMishra/NuclearCore-GUI.git
+```
+
+**3. Go into the folder** you just downloaded:
+
+```bash
+cd NuclearCore-GUI
+```
+
+**4. Install what it needs** (about 30 seconds):
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
+**5. Start it:**
+
 ```bash
 python -m s3dash
 ```
 
-That starts the server on <http://127.0.0.1:8000> and opens a browser. Drop any
-`.out` file on the load panel — it parses server-side in well under a second
-for a typical 1 MB listing. Or run uvicorn directly:
+Your browser opens at <http://127.0.0.1:8000>. If it does not, open that
+address yourself.
 
-```bash
-python -m uvicorn s3dash.web.app:app --port 8000
-```
+**6. Load a file.** Click **Load listing**, then drag in a `.out` file or
+browse to one. A 1 MB listing parses in well under a second.
 
-**No build step, no npm, no network.** The front end is vanilla ES modules and
-hand-written SVG; nothing is fetched from a CDN. It runs on an air-gapped
-machine exactly as it runs on a connected one.
+To stop the server, press `Ctrl+C` in the terminal.
 
-### Bringing your own listings
+### Using your own files
 
-**No `.out` files are committed here.** They are SIMULATE-3 output for specific
-plant models and are not ours to redistribute. Anything you drop into
-`sample_data/` appears as a one-click button on the load panel:
+**No `.out` files are included in this repository.** They are simulator output
+for specific plant designs and are not ours to redistribute.
+
+The upload button reads any file you point it at, whatever it is named — you
+never need to do anything else. If you would rather have one-click buttons for
+files you open often, drop them in the `sample_data/` folder and they will
+appear on the load panel:
 
 ```
 sample_data/
@@ -58,21 +163,15 @@ sample_data/
   your_cycle2.out
 ```
 
-You never need to do that to use the tool — the upload button reads any file
-you point it at, whatever it is named.
-
 ### Exports
 
 | Format | What it is |
 |---|---|
-| **PDF report** | Eight pages: cover, linked contents with page numbers, run summary, core map, every depletion step tabulated, axial distribution (3D runs), inventory and segments, diagnostics with the symmetry breakdown, provenance. Sections that do not apply are omitted rather than left empty. |
-| **PNG** | Any chart or the core map, rendered at 2× |
-| **CSV** | The assembly table for the current step |
-| **JSON** | The complete parsed payload |
-| **Print** | Every view as one document |
-
-The PDF is also available directly:
-`GET /api/run/{runId}/report.pdf?step=N`
+| **PDF report** | Eight pages: cover, contents with page numbers and working links, run summary, core map, every depletion step tabulated, axial distribution, fuel inventory, diagnostics with the symmetry breakdown, and provenance. Sections that do not apply to your run are left out rather than shown empty. |
+| **PNG** | Any chart, or the core map, at double resolution |
+| **CSV** | The full assembly table for the step you are viewing |
+| **JSON** | Everything the parser extracted, for use in your own scripts |
+| **Print** | All views as one document |
 
 ### Sharing a result
 
@@ -82,120 +181,135 @@ To hand someone a finished analysis without asking them to install anything:
 python -m s3dash.bundle your_run.out -o your_run.html
 ```
 
-That writes one self-contained HTML file — the whole dashboard with the parsed
-results baked in, opening on a double-click with no Python and no network. It
-carries results, not the parser, so it cannot open *other* listings; for that,
-run the server.
+That writes a single HTML file — the whole dashboard with the results built in,
+which opens on a double-click with no Python and no internet. It carries
+results, not the parser, so it cannot open *other* listings; for that, run the
+server as above.
 
 ---
 
-## Why the parser generalises
+## How it works
 
-SIMULATE-3 can emit around thirty state variables (`RPF`, `EXP`, `KINF`,
-`TFU`, `XEN`, …) each on eight different bases (`2`, `3`, `Z`, `Q`, `N`, `P`,
-`S`, `X`), which is a couple of hundred possible edit names — before counting
-`PIN.EDT`, `BAT.EDT` and `DET.EDT`. Enumerating them would guarantee the
-parser breaks on the first file that uses one it had not met.
+The hard part is not drawing the core map. It is reading the file reliably.
 
-It does not enumerate them. The listing is built from a small number of
-recurring *physical layouts*, and the parser reads those:
+### The problem with the obvious approach
 
-| Primitive | Used by |
+SIMULATE-3 can print roughly thirty different physical quantities — power,
+exposure, temperature, xenon concentration and so on. Each can be printed on
+about eight different bases: per assembly or per node, in two dimensions or
+three, averaged or peak. That is already a couple of hundred possible section
+names, before counting the separate families of pin-level, batch-level and
+detector edits.
+
+Which of them appear depends entirely on what the engineer asked for in that
+particular run.
+
+So a parser written as a list of known section names is guaranteed to fail on
+the first file that uses one it was not told about. That is the trap the
+throwaway-script approach falls into.
+
+### The approach taken instead
+
+Those hundreds of possible sections are printed in only **six physical
+layouts**. A power map and a xenon map look identical on the page; only the
+heading differs. So this parser reads *layouts*, not names:
+
+| Layout | What is printed this way |
 |---|---|
-| Page/banner segmentation | everything — gives every value its case/step context |
-| Banded 2D map | **every** `PRI.STA` and `PIN.EDT` variable, control-rod map |
-| Bordered cell grid | `PRI.INP` FMAP / CMAP / QMAP / BMAP |
-| Dashed-rule table | segments, batch edits, library parameters, diagnostics, depletion |
-| Dot-leader key/value | Input Summary, Output Summary, dimensions |
-| Framed card cluster | `ERR.CHK - SYMGRP` violation groups |
+| Page banner | Every page — this is what tells you which case and depletion step the numbers below belong to |
+| Banded grid | **Every** core map of every variable, plus the control-rod map |
+| Bordered cell grid | The fuel-loading maps, where each cell stacks several fields |
+| Ruled table | Fuel segments, batch summaries, diagnostics, the depletion history |
+| Dot-leader pairs | The summary blocks: `Thermal Power . . . CTP  3983.8 MWt` |
+| Framed cards | Symmetry-check failures, drawn as boxes laid out across the page |
 
-A variable this parser has never seen still comes through, because its
-*shape* is already known. `9074.out` exercises exactly this: it contains
-`2KIN` and `2RR1`, which neither APR1400 file has, and both parse with no
-code specific to them.
+A variable this parser has never encountered still comes through correctly,
+because its *shape* is already understood. That is not a theoretical claim: one
+of the three test files contains two variables the other two do not, and both
+parse with no code written for them.
 
-Geometry is likewise read, never assumed. `IAFULL`, `KD`, `IHAVE`, `IF2X2`,
-`NREF` and the symmetry mode come out of the echoed dimensions block, and
-everything downstream — grid size, quarter/octant expansion, whether axial
-data exists — follows from those.
+### Geometry is read, never assumed
 
-### Verified generality
+The same applies to the core itself. How wide it is, whether the file prints
+the whole core or just a quarter of it, whether results are two- or
+three-dimensional, and which symmetry rule maps a quarter onto the whole — all
+of it is read from the file's own declarations. Everything downstream follows
+from that, so nothing in the code assumes a 17×17 core or a quarter-core file.
 
-It was developed against three listings that disagree on every axis that
-matters. They are not committed here (see *Bringing your own listings*), but
-they are what every claim below was checked against:
+### What that buys you
 
-| | `case_002495` | `apr1400.c02` | `9074` |
+Development used three listings chosen because they disagree on **every axis
+that matters**:
+
+| | APR1400 run 1 | APR1400 run 2 | BEAVRS |
 |---|---|---|---|
-| Plant | APR1400 C2 | APR1400 C2 | BEAVRS C1 |
-| Core width | 17 | 17 | **15** |
-| Fraction | quarter | quarter | **full** |
-| Axial | 2D (1 node) | 2D | **3D (12 nodes)** |
-| Exposure unit | GWd/MT | GWd/MT | **EFPD** |
-| Extra variables | — | — | **2KIN, 2RR1** |
-| `PRI.INP` maps | 4 | 4 | **none** |
-| `BAT.EDT` | yes | yes | **none** |
-| `ERR.CHK` | SYMGRP | SYMGRP + SYMROT | **none** |
-| Loading card | `FUE.LAB` | `FUE.LAB` | **`FUE.TYP`** |
-| Steps | 31 | 28 | 32 |
+| Core width | 17×17 | 17×17 | **15×15** |
+| Portion printed | quarter | quarter | **whole core** |
+| Dimensions | 2D | 2D | **3D, 12 levels** |
+| Burnup unit | GWd/MT | GWd/MT | **EFPD** |
+| Extra variables | — | — | **two the others lack** |
+| Fuel-loading maps | present | present | **absent** |
+| Batch summaries | present | present | **absent** |
+| Symmetry warnings | present | present | **absent** |
+| Depletion steps | 31 | 28 | 32 |
 
-Missing sections degrade rather than fail: BEAVRS has no `FMAP` and no batch
-edits, and still produces a complete 193-assembly core map. Anything the
-parser skipped is reported in `parseNotes` and surfaced in the UI, so a
-partial parse is visible rather than silent.
+Where a section is missing the tool degrades rather than fails: the BEAVRS run
+has no fuel-loading maps and no batch summaries, and still produces a complete
+193-assembly core map. Anything genuinely not understood is reported in the
+interface rather than dropped.
 
 ---
 
 ## Correctness
 
-The parser is checked against facts the listing states about *itself*, not
-against previously-parsed output:
+For a tool whose whole purpose is inspection, a wrong number shown confidently
+is worse than no tool at all. Three independent checks guard against that.
 
-- Quarter-core expansion yields exactly the assembly count the Input Summary
-  reports — 241, 241 and 193.
-- Per-fuel-type counts match the `Assembly Physical Descriptions` block, and
-  the height-weighted totals reproduce the `Fueled Segments` equivalent-
-  assembly column (56 assemblies × 351/381 cm = 51.591).
-- Generated site labels match all 241 `FMAP` labels.
-- k-eff from the Output Summary agrees with the independently printed
-  depletion table at every step.
-- Depletion rows equal state-point counts (31 / 28 / 32).
-- Rod positions equal `total withdrawn ÷ steps per rod` (289 / 289 / 225).
+### 1. The file is checked against itself
 
-### Independent verification
+Listings state many quantities more than once, in places written by different
+parts of the simulator. Those are free correctness checks, and the parser uses
+them:
 
-`verify/` re-extracts values straight from the raw bytes using a separate
-implementation, deliberately written with a different technique per layout so
-a shared bug cannot hide. It compared **147,151 values** across the three
-files and now reports **zero discrepancies**:
+- Expanding a quarter-core map to the whole core must produce exactly the
+  assembly count the file states elsewhere — 241, 241 and 193 for the three
+  test files.
+- Fuel counted per type must match the file's own per-type totals.
+- The multiplication factor at each step, printed once per step and again in a
+  summary table at the end, must agree in both places.
+- Control-rod positions counted from the map must match the total the file
+  prints beneath it.
 
-| File | Values compared |
-|---|---:|
-| `case_002495.out` | 46,104 |
-| `apr1400.c02.out` | 41,560 |
-| `9074.out` | 59,487 |
+### 2. An independent re-implementation
 
-That includes all 53,340 printed map cells across 91 state points and 428 map
-blocks, plus ~57,000 rotational-image checks on the expanded quarter cores.
+`verify/` re-extracts values straight from the raw bytes using a **separate
+implementation, deliberately written with a different technique for each
+layout**, so a shared misunderstanding cannot hide in both. It compared
+**147,151 values** across the three files and reports **zero discrepancies** —
+including all 53,340 printed map cells, and about 57,000 checks that
+symmetry-expanded positions really do mirror their originals.
 
-Getting there took **twelve** parser fixes. Every one was invisible in the
-original file and only surfaced because a second and third file, or an
-independent extractor, disagreed. The most consequential:
+### 3. Fourteen bugs, none visible in the first file
 
-- **Cycle length was overstated by 0.94 GWd/MT.** An `ITE.SRC 'EOLEXP'`
-  search prints trial pages whose banner exposure is not the converged
-  answer; `case_002495` step 30 published 25.050 instead of 24.112. The
-  listing states the right value five lines later and again in the depletion
-  table.
-- **`FUE.TYP` numbers were being read as segment numbers.** They coincide in
-  the APR1400 decks and do not in BEAVRS, where it gave most of the core the
-  wrong enrichment (3.10 w/o read as 2.40).
-- **Exposure unit was inferred from the wrong page**, labelling an EFPD run
-  as GWd/MT.
-- **Segments with no burnable poison print `------`**; requiring digits there
-  silently dropped 107 of BEAVRS's 193 assemblies.
-- **`P**2` axial values landed under the wrong column** — a wrong number
-  under a plausible name, the worst failure mode for a diagnostic tool.
+Reaching zero took fourteen fixes. **Every one of them was invisible in the
+file originally used for development** — each surfaced only because a second
+file, a third file, or the independent re-implementation disagreed. The most
+consequential:
+
+- **Cycle length was overstated by 0.94 GWd/MT.** When SIMULATE-3 searches for
+  the end of a cycle it prints trial pages whose headline number is not the
+  converged answer. The parser was reading the first one it saw. For anyone
+  using this to compare fuel loading patterns, cycle length is often the
+  quantity being optimised — so this mattered.
+- **Two different numbering systems were being confused.** Fuel *type* numbers
+  and fuel *segment* numbers happen to coincide in the APR1400 files and do not
+  in BEAVRS, where the mix-up gave most of the core the wrong enrichment.
+- **A whole class of fuel was silently dropped.** Where a column does not apply,
+  the listing prints dashes rather than leaving it blank. Requiring a number
+  there discarded 107 of BEAVRS's 193 assemblies without any error.
+- **A value was filed under the wrong column heading** — a wrong number with a
+  plausible name, which is the worst failure mode there is for a diagnostic
+  tool.
 
 Full findings in `verify/VERIFICATION_REPORT.md`.
 
@@ -205,109 +319,104 @@ Full findings in `verify/VERIFICATION_REPORT.md`.
 python -m pytest tests/ -q
 ```
 
-Tests that need a real listing skip when none is present, so a fresh clone
-runs **68 tests** covering the layout primitives, the column arithmetic,
-geometry resolution, symmetry expansion (rotational, mirror and octant) and
-report escaping — the parts that fail silently rather than loudly. Put listings
-in `sample_data/` to unlock the other 126, which check parsed values against
-figures each file states about itself.
-
-### Checking a file the parser has never seen
-
-Point the self-check at any listing to find out whether it was understood.
-Every check compares the parser against a number the file states about
-itself, so it needs no known-good reference:
-
-```bash
-python -m s3dash.check path/to/run.out
-```
-
-```
-   ok   Assembly count vs Input Summary        241 parsed vs 241 declared
-   ok   Height-weighted counts vs Fueled Segments  4 segment(s) match
-   ok   k-eff agrees across two sources        Output Summary matches depletion table
-   ok   Rod positions vs listing total         289 positions vs 289 implied by total/steps
-```
-
-It exits non-zero on failure, so it can gate a batch conversion. Where it
-cannot decide something it says so rather than guessing — BEAVRS references
-eight fuel types the listing never describes, and the check reports that
-instead of silently misattributing them.
-
-This command found three real defects during development, including one where
-`FUE.TYP` numbers were being treated as segment numbers — harmless in the
-APR1400 decks, where they coincide, and wrong for most of the BEAVRS core.
-
-`verify/` holds an independent re-extraction of values straight from the raw
-text — deliberately written with different techniques than the parser uses, so
-a shared bug cannot hide — with its findings in
-`verify/VERIFICATION_REPORT.md`.
+Tests needing a real listing skip automatically when none is present, so a
+fresh clone runs **69 tests** — the layout readers, the column arithmetic,
+geometry handling and symmetry expansion. Put listings in `sample_data/` to
+unlock the other 149, which check parsed values against figures the files state
+about themselves, bringing the suite to **218**.
 
 ---
 
-## Layout
+## Project layout
 
 ```
 s3dash/
-  parser/
-    textutil.py     column arithmetic, Fortran number parsing, heading despacing
-    document.py     pages, state-point context, section index
-    geometry.py     DIM/COR resolution, fractional-core expansion
-    primitives.py   the layout primitives above
-    sections.py     bespoke layouts (SYMGRP, diagnostics, depletion, axial, batch)
-    inputcards.py   echoed input deck, fuel definitions, segment table
-    build.py        assembles the JSON payload
+  parser/           reads the listing
+    textutil.py       column arithmetic and number parsing
+    document.py       pages, step context, section index
+    geometry.py       core dimensions and symmetry expansion
+    primitives.py     the six layout readers
+    sections.py       layouts needing bespoke handling
+    inputcards.py     the echoed input deck and fuel definitions
+    build.py          assembles everything into one data structure
   web/
-    app.py          FastAPI endpoints
-    static/         the dashboard (vanilla ES modules + SVG)
-docs/
-  API_CONTRACT.md   payload shape, endpoints, and the rules the UI must honour
-  sample_payload_*.json
-tests/              parser, integration and API tests
-verify/             independent numerical verification
-sample_data/        the three reference listings
+    app.py            the server
+    report.py         standalone HTML report
+    pdfreport.py      the PDF report
+    static/           the dashboard itself
+  check.py          self-consistency checker
+  bundle.py         single-file export
+tests/              automated tests
+verify/             independent re-implementation and its findings
+tools/              README image generation
+docs/               data format and design notes
 ```
 
 ---
 
-## Adding support for another section
+## Extending it
 
-Most additions need no parser code at all — a new `PRI.STA` variable is
-already handled. For a genuinely new layout:
+Most additions need no code at all — a new variable is already handled by the
+existing layout readers. For a genuinely new layout:
 
-1. Add an anchor row to `_ANCHORS` in `document.py` (regex → kind + name).
-2. If it reuses an existing shape, point the dispatch in `build.py` at the
-   matching primitive. If the shape is new, add a primitive.
-3. Add a fixture to `tests/test_primitives.py` copied verbatim from a real
-   listing, and an assertion in `tests/test_integration.py` tied to something
-   the file states about itself.
+1. Add a pattern to `_ANCHORS` in `parser/document.py` so the section is found.
+2. Point it at whichever layout reader matches, or add a new one if the shape
+   is genuinely new.
+3. Add a test using text copied verbatim from a real listing, and an assertion
+   tied to something the file states about itself.
 
-Unrecognised regions are never dropped silently — they remain reachable
-through the navigation tree and the raw section viewer.
+Sections the parser does not recognise are never discarded — they remain
+reachable through the navigator and the raw text viewer.
+
+`docs/API_CONTRACT.md` describes the data structure the interface consumes.
 
 ---
 
 ## Known limits
 
-Stated plainly, because a diagnostic tool that overstates its own coverage is
-worse than one that admits gaps.
+A tool that overstates what it covers is worse than one that is honest about
+the gaps. These are the gaps.
 
-- **One file at a time**; there is no run-to-run comparison view.
-- **No real-file coverage for octant or mirror symmetry.** Both paths are
-  implemented and unit-tested against synthetic cores, but all three sample
-  files are rotational — quarter or full. Check any octant or mirror listing
-  with `python -m s3dash.check` before trusting its core map.
-- **No BWR file was available.** BWR listings should parse structurally, since
-  the geometry resolution and layout primitives are shared, but this is
-  untested against real output.
-- **No file with maps split across a page break.** Wide cores can force a map
-  to continue on the next page; the stitching code exists but no sample
-  exercises it.
-- **Rods are fully withdrawn in every sample.** The partially-inserted branch
-  is unit-tested only.
-- 3D runs give the core-average axial profile; per-assembly axial detail needs
-  the run to have edited `3RPF`-class maps.
-- `QMAP` and `BMAP` are parsed but not published in the payload.
-- The `*` that appears in some `PIN.EDT 2PLO` cells (e.g. `14*13`) is
-  preserved byte-for-byte but its meaning is not documented in the manual, so
-  it is not interpreted.
+**Things it does not do yet**
+
+- **One file at a time.** There is no side-by-side comparison of two runs.
+- **Axial detail is core-wide, not per assembly.** For three-dimensional runs
+  you get how power varies with height averaged over the core. Getting it for
+  one specific assembly requires the run to have printed a fuller set of
+  results than any test file did.
+
+**Things believed to work but not proven on real files**
+
+The three files used for development are all pressurised-water reactors using
+the same symmetry rule. The following are implemented and tested against
+constructed examples, but have never been run against genuine output:
+
+- **Boiling-water reactors.** Nothing in the design is specific to pressurised
+  reactors, but no BWR listing was available to confirm it.
+- **Two of the less common symmetry conventions.** Real files exercised only
+  the most common one.
+- **Very wide cores** whose maps get split across a page break mid-map. The
+  code to stitch them exists but no available file triggered it.
+- **Partially inserted control rods.** Every test file had all rods fully
+  withdrawn.
+
+If you have such a file, it is worth checking the results carefully the first
+time — and a report of what went wrong would be genuinely useful.
+
+**Smaller things**
+
+- Two of the fuel-loading map types are read but not yet shown in the
+  interface.
+- One character that appears in some pin-location entries is preserved exactly
+  but not interpreted, because the manual does not document what it means.
+
+---
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).
+
+SIMULATE-3 is proprietary software from Studsvik Scandpower. This project is an
+independent reader of its text output, is not affiliated with or endorsed by
+Studsvik, and contains none of their code or documentation. Output files you
+analyse with it remain subject to whatever terms apply to them.
