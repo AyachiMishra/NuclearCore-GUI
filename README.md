@@ -54,7 +54,7 @@ the listing (the .out file), thus ensuring numbers don’t get invented out of t
 </p>
 
 <sub>Rendered from a SIMULATE-3 run of
-[BEAVRS](https://crpg.mit.edu/research/benchmark-for-evaluation-and-validation-of-reactor-simulations),
+[BEAVRS](https://crpg.mit.edu/research/beavrs/),
 an openly published MIT reactor benchmark. Regenerate with
 `python tools/make_readme_assets.py your_run.out`.</sub>
 
