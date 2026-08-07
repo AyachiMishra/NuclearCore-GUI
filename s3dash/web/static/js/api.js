@@ -69,3 +69,21 @@ export function exportJsonUrl(runId) {
 export function exportCsvUrl(runId, step) {
   return `/api/run/${encodeURIComponent(runId)}/export.csv?step=${encodeURIComponent(step)}`;
 }
+
+/** GET /api/run/{id}/report.pdf -> {blob, filename}
+ *
+ * Fetched rather than navigated to. A navigation swallows the backend's
+ * {"detail": "..."} body and leaves the reader looking at a blank tab, and the
+ * render takes a second or three — which can only be shown as a busy state if
+ * the UI is the one waiting.
+ */
+export async function fetchReportPdf(runId, step) {
+  const q = new URLSearchParams({ step: String(Number.isFinite(step) ? step | 0 : 0) });
+  const res = await check(
+    await fetch(`/api/run/${encodeURIComponent(runId)}/report.pdf?${q}`)
+  );
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+  return { blob, filename: match ? decodeURIComponent(match[1]) : 'report.pdf' };
+}

@@ -664,6 +664,127 @@ export function renderCpuChart(host) {
     `</tbody></table></div></details></figure>`;
 }
 
+/* ------------------------------------------------------------- PNG export
+ *
+ * Every figure here is hand-built SVG whose paint comes from the stylesheet,
+ * so serialising the markup alone produces a black-on-transparent skeleton.
+ * The computed value of each painting property is copied onto the clone first,
+ * the result is drawn through an Image and a canvas at 2x, and the canvas is
+ * painted opaque before the draw so the file is not invisible on a white page.
+ *
+ * No library and nothing fetched: the whole round trip is a data: URL.
+ */
+
+const PNG_PROPS = [
+  'fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity',
+  'stroke-dasharray', 'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin',
+  'opacity', 'color', 'display', 'visibility', 'font-family', 'font-size',
+  'font-weight', 'font-style', 'font-variant-numeric', 'letter-spacing',
+  'text-anchor', 'dominant-baseline', 'paint-order', 'shape-rendering',
+];
+
+function inlineStyle(src, dst) {
+  const cs = getComputedStyle(src);
+  let css = '';
+  for (const prop of PNG_PROPS) {
+    const v = cs.getPropertyValue(prop);
+    if (v) css += `${prop}:${v};`;
+  }
+  // The element's own style attribute is appended last so it still wins — the
+  // core map paints per-cell ink that way.
+  const own = dst.getAttribute('style');
+  dst.setAttribute('style', css + (own || ''));
+}
+
+/** UTF-8 safe base64. btoa() alone throws on the en dashes in the captions. */
+function toBase64(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+function cssVar(name, fallback) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name);
+  return (v || '').trim() || fallback;
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('The browser could not rasterise this figure.'));
+    img.src = src;
+  });
+}
+
+/** Rasterise one live <svg> to a PNG Blob at `scale`x on an opaque ground. */
+export async function svgToPngBlob(svg, opts = {}) {
+  const scale = opts.scale || 2;
+  const box = svg.getBoundingClientRect();
+  const vb = svg.viewBox && svg.viewBox.baseVal;
+  const w = Math.max(1, Math.round(box.width || (vb && vb.width) || 640));
+  const h = Math.max(1, Math.round(box.height || (vb && vb.height) || 400));
+
+  const clone = svg.cloneNode(true);
+  inlineStyle(svg, clone);
+  const from = svg.querySelectorAll('*');
+  const to = clone.querySelectorAll('*');
+  for (let i = 0; i < from.length; i += 1) {
+    // <title>/<desc> are the accessible names, never painted — and on a
+    // 241-cell map they are a sixth of the nodes to ask the engine about.
+    const tag = from[i].tagName;
+    if (tag === 'title' || tag === 'desc') continue;
+    inlineStyle(from[i], to[i]);
+  }
+
+  clone.setAttribute('width', String(w * scale));
+  clone.setAttribute('height', String(h * scale));
+  if (!clone.getAttribute('viewBox')) clone.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+  // XMLSerializer emits the SVG namespace declaration itself, which is the only
+  // reason this file contains no URL of any kind.
+  const markup = new XMLSerializer().serializeToString(clone);
+  const img = await loadImage(`data:image/svg+xml;base64,${toBase64(markup)}`);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w * scale;
+  canvas.height = h * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = opts.background || cssVar('--panel', '#ffffff');
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('The canvas produced no image data.'))),
+      'image/png'
+    );
+  });
+}
+
+/** Rasterise the figure inside `host` and save it. Throws with a readable
+ *  message when there is nothing drawn, which the caller surfaces as a toast. */
+export async function exportHostPng(host, filename) {
+  const svg = host && host.querySelector ? host.querySelector('svg') : null;
+  if (!svg) {
+    throw new Error('Nothing is drawn here yet, so there is no image to export.');
+  }
+  const blob = await svgToPngBlob(svg);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
 /* ---------------------------------------------------------------- wiring */
 
 export function initCharts(deplHost, axialHost) {
