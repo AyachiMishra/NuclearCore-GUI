@@ -165,6 +165,31 @@ class TestReportEndpoint:
         assert client.get("/api/run/deadbeef/report.html").status_code == 404
 
 
+class TestPdfEndpoint:
+    def test_serves_a_pdf(self, client, run_id):
+        resp = client.get(f"/api/run/{run_id}/report.pdf", params={"step": 0})
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/pdf"
+        assert resp.content.startswith(b"%PDF-")
+
+    def test_downloads_by_default(self, client, run_id):
+        resp = client.get(f"/api/run/{run_id}/report.pdf")
+        assert "attachment" in resp.headers.get("content-disposition", "")
+        assert ".report.pdf" in resp.headers["content-disposition"]
+
+    def test_can_be_viewed_inline(self, client, run_id):
+        resp = client.get(f"/api/run/{run_id}/report.pdf", params={"download": False})
+        assert "inline" in resp.headers.get("content-disposition", "")
+
+    def test_step_selects_the_core_map(self, client, run_id):
+        a = client.get(f"/api/run/{run_id}/report.pdf", params={"step": 0}).content
+        b = client.get(f"/api/run/{run_id}/report.pdf", params={"step": 12}).content
+        assert a != b, "the report should reflect the requested step"
+
+    def test_unknown_run_is_404(self, client):
+        assert client.get("/api/run/deadbeef/report.pdf").status_code == 404
+
+
 class TestStaticSurface:
     def test_index_is_served(self, client):
         resp = client.get("/")

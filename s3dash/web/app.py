@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 
 from ..parser import BuildResult, parse_text
+from .pdfreport import build_pdf as render_pdf
 from .report import render_report
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -192,6 +193,25 @@ async def export_report(run_id: str, step: int = Query(0, ge=0), download: bool 
     if download:
         headers["Content-Disposition"] = f'attachment; filename="{name}.report.html"'
     return HTMLResponse(html_doc, headers=headers)
+
+
+@app.get("/api/run/{run_id}/report.pdf")
+async def export_pdf(run_id: str, step: int = Query(0, ge=0), download: bool = True):
+    """Formatted PDF report: linked contents, page numbers, all state points."""
+    result = _get(run_id)
+    try:
+        blob = render_pdf(result.payload, step=step)
+    except Exception as exc:  # a layout failure must not read as a 500 mystery
+        raise HTTPException(
+            status_code=500, detail=f"Could not render the PDF report: {exc}"
+        ) from exc
+    name = Path(result.payload["meta"]["fileName"] or "run").stem
+    disposition = "attachment" if download else "inline"
+    return StreamingResponse(
+        io.BytesIO(blob),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{name}.report.pdf"'},
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
