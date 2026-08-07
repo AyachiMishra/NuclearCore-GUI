@@ -15,7 +15,7 @@ import { state, update } from './state.js';
 export const VIEWS = ['map', 'plots', 'sections'];
 const DEFAULT_VIEW = 'map';
 
-const VIEW_LABEL = { map: 'Core map', plots: 'Plots', sections: 'Sections' };
+const VIEW_LABEL = { map: 'Core map', plots: 'Plots', sections: 'Sections & Search' };
 
 /** Parse "#/plots" -> "plots". Unknown or absent routes fall back to the map. */
 export function viewFromHash(hash = window.location.hash) {
@@ -32,9 +32,12 @@ export function applyView(view) {
     if (el) el.hidden = v !== name;
   }
 
-  // The navigator belongs to the Sections view; the detail panels to the map.
-  const nav = document.getElementById('nav-card');
-  if (nav) nav.hidden = name !== 'sections' || !state.payload;
+  // The navigator and the section viewer live inside the Sections view itself,
+  // so they need no separate toggle. The RUN metadata card is deliberately not
+  // part of that view — there the left column is the navigator and the raw
+  // text under it, nothing else. The detail panels belong to the map.
+  const meta = document.getElementById('meta-card');
+  if (meta) meta.hidden = name === 'sections' || !state.payload;
   const rail = document.getElementById('rail-right');
   if (rail) rail.hidden = name !== 'map' || !state.payload;
 

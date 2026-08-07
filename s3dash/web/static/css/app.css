@@ -40,8 +40,12 @@
   --crd-out-text:  #37444f;
   --grid-line:     #e2e7ee;
   --axis-line:     #9aa7b5;
-  --shadow:        0 1px 2px rgba(16, 28, 40, .07), 0 4px 14px rgba(16, 28, 40, .05);
-  --shadow-pop:    0 6px 28px rgba(16, 28, 40, .22);
+  /* One light source, up and to the LEFT: every shadow falls to the right and
+     slightly down (positive X, positive Y). Soft and low-contrast — this is an
+     instrument panel, not a drop-shadow demo. */
+  --shadow:        1px 1px 2px rgba(16, 28, 40, .07), 4px 5px 14px rgba(16, 28, 40, .05);
+  --shadow-pop:    4px 4px 10px rgba(16, 28, 40, .10), 10px 12px 30px rgba(16, 28, 40, .20);
+  --shadow-cell:   drop-shadow(1px 1px 1px rgba(16, 28, 40, .18));
   --radius:        7px;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Mono", Consolas,
           "Liberation Mono", "DejaVu Sans Mono", monospace;
@@ -116,8 +120,11 @@
   --crd-out-text:  #c3d0dd;
   --grid-line:     #222c37;
   --axis-line:     #4a5a6b;
-  --shadow:        0 1px 2px rgba(0, 0, 0, .5), 0 4px 14px rgba(0, 0, 0, .35);
-  --shadow-pop:    0 6px 28px rgba(0, 0, 0, .6);
+  /* Same light source; lower opacity, because a shadow on a dark panel reads
+     far heavier for the same alpha. */
+  --shadow:        1px 1px 2px rgba(0, 0, 0, .34), 4px 5px 14px rgba(0, 0, 0, .24);
+  --shadow-pop:    4px 4px 10px rgba(0, 0, 0, .30), 10px 12px 30px rgba(0, 0, 0, .44);
+  --shadow-cell:   drop-shadow(1px 1px 1px rgba(0, 0, 0, .38));
   color-scheme: dark;
 }
 
@@ -258,16 +265,29 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
 .completion-chip.is-abnormal { background: var(--err-bg);  color: var(--err);  border-color: color-mix(in srgb, var(--err) 45%, transparent); }
 .completion-chip.is-unknown  { background: var(--note-bg); color: var(--note); border-color: var(--border); }
 
+/* The badge is a group of individually clickable counters: each one jumps to
+   the diagnostics panel AND filters it to that severity, so "71 warnings" is a
+   way in rather than a number to go hunting for. */
 .status-badge {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 5px 11px; border-radius: 20px; cursor: pointer;
-  font: inherit; font-size: 11.5px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 2px 3px; border-radius: 20px;
+  font-size: 11.5px; font-weight: 600;
   border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
 }
-.status-badge:hover { border-color: var(--border-strong); }
+.status-seg {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: 20px; cursor: pointer;
+  border: 1px solid transparent; background: none; color: inherit;
+  font: inherit; font-size: 11.5px; font-weight: 600; white-space: nowrap;
+}
+.status-seg:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+.status-seg[aria-pressed="true"] {
+  background: color-mix(in srgb, currentColor 20%, transparent);
+  border-color: color-mix(in srgb, currentColor 55%, transparent);
+}
+.status-seg.status-count { color: var(--text-dim); font-weight: 550; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
 .status-level { letter-spacing: .04em; }
-.status-counts { color: var(--text-dim); font-weight: 500; }
 .status-badge.level-ok       { color: var(--ok);   background: var(--ok-bg);   border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
 .status-badge.level-warnings { color: var(--warn); background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
 .status-badge.level-errors   { color: var(--err);  background: var(--err-bg);  border-color: color-mix(in srgb, var(--err) 45%, transparent); }
@@ -383,8 +403,46 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
 /* Once the toolbar wraps, the control can land anywhere on the row, so the
    popup spans the toolbar instead of guessing an edge to hang from. */
 @media (max-width: 1000px) {
-  .menu { position: static; }
-  .menu-body { left: 12px; right: 12px; min-width: 0; max-width: none; }
+  #filter-menu { position: static; }
+  #filter-menu .menu-body { left: 12px; right: 12px; min-width: 0; max-width: none; }
+}
+
+/* ------------------------------------------------------------ export menu */
+
+/* One button, one menu. It opens on hover, on click and on keyboard focus —
+   hover alone would be unreachable without a pointer. */
+.menu-export { flex: 0 0 auto; }
+.menu-export > summary { display: inline-flex; align-items: center; gap: 5px; }
+.menu-caret { font-size: 9px; color: var(--text-faint); }
+.menu-export[open] > summary { background: var(--panel-3); border-color: var(--border-strong); }
+/* A gap between the button and the panel would drop the hover on the way down. */
+.menu-export .menu-body { top: calc(100% + 2px); min-width: 232px; padding: 5px; }
+.menu-list { display: flex; flex-direction: column; gap: 1px; }
+.menu-item {
+  display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
+  width: 100%; padding: 6px 9px; cursor: pointer; text-align: left;
+  border: 0; border-radius: 5px; background: none; color: var(--text);
+  font: inherit;
+}
+.menu-item:hover:not(:disabled) { background: var(--accent-soft); }
+.menu-item:disabled { opacity: .55; cursor: progress; }
+.menu-item-name { font: 600 12px/1.35 var(--sans); }
+.menu-item-note { font-size: 10.5px; color: var(--text-faint); line-height: 1.35; }
+/* Once the header wraps, the button can sit anywhere on its row — and at this
+   width the header is no longer sticky, so there is no positioned ancestor to
+   hang a panel from. Pin it to the viewport instead; wireMenu() supplies the
+   one number CSS cannot know, the button's current bottom edge. */
+@media (max-width: 720px) {
+  .menu-export .menu-body {
+    position: fixed; left: 12px; right: 12px; top: 64px;
+    min-width: 0; max-width: none;
+  }
+}
+.menu-item.is-busy .menu-item-name::after {
+  content: ""; display: inline-block; vertical-align: -2px; margin-left: 7px;
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid var(--border-strong); border-top-color: var(--accent);
+  animation: spin .7s linear infinite;
 }
 .filter-block { margin-bottom: 10px; }
 .filter-title {
@@ -413,15 +471,25 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
    beside it — so the surplus goes to the panels, where the wide tables
    (symmetry members, batch edits, the output summary) can use it. */
 body[data-view="map"] .layout {
-  grid-template-columns: minmax(230px, 290px) minmax(0, 560px) minmax(340px, 1fr);
+  grid-template-columns: minmax(230px, 290px) minmax(0, 672px) minmax(340px, 1fr);
 }
-body[data-view="plots"] .layout,
-body[data-view="sections"] .layout {
+body[data-view="plots"] .layout {
   grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
 }
+/* Sections & Search: the navigator and the raw-text viewer own the main
+   column, stacked. Text hits get their own column only once a search has
+   actually returned something — otherwise the column would sit there empty. */
+body[data-view="sections"] .layout { grid-template-columns: minmax(0, 1fr); }
+body[data-view="sections"].has-hits .layout {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+}
+body[data-view="sections"] .col-center { order: 1; }
+body[data-view="sections"] .rail-left { order: 2; }
+
 .col-center { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .rail { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .view { min-width: 0; }
+#view-sections { display: flex; flex-direction: column; gap: 12px; }
 
 /* With the charts on their own view the map column is no longer a tall stack,
    so the map card is given breathing room rather than being left in a hole. */
@@ -430,9 +498,12 @@ body[data-view="sections"] .layout {
 @media (max-width: 1340px) {
   .layout,
   body[data-view="map"] .layout,
-  body[data-view="plots"] .layout,
-  body[data-view="sections"] .layout {
+  body[data-view="plots"] .layout {
     grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
+  }
+  body[data-view="sections"] .layout { grid-template-columns: minmax(0, 1fr); }
+  body[data-view="sections"].has-hits .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
   }
   .rail-right { grid-column: 1 / -1; }
 }
@@ -440,7 +511,8 @@ body[data-view="sections"] .layout {
   .layout,
   body[data-view="map"] .layout,
   body[data-view="plots"] .layout,
-  body[data-view="sections"] .layout {
+  body[data-view="sections"] .layout,
+  body[data-view="sections"].has-hits .layout {
     grid-template-columns: minmax(0, 1fr);
   }
   .rail-right { grid-column: auto; }
@@ -474,9 +546,16 @@ body[data-view="sections"] .layout {
 }
 .card-flush { padding: 0; overflow: hidden; }
 .card-head {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin-bottom: 10px;
 }
+/* Two-row header: identity on top, the controls that drive this card below. */
+.card-head-stack { flex-direction: column; align-items: stretch; gap: 7px; }
+.card-head-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.card-head-tools { gap: 6px 10px; }
+.card-head-tools select { margin-left: 0; }
+.card-head-tools .btn-png { margin-left: auto; }
+.card-sub-note { margin: -4px 0 8px; margin-left: 0; text-align: left; display: block; }
 .card-flush .card-head { padding: 10px 12px 8px; margin: 0; }
 .card-head h2 {
   font-size: 12px; text-transform: uppercase; letter-spacing: .07em;
@@ -491,14 +570,52 @@ body[data-view="sections"] .layout {
   color: var(--warn); font-weight: 600;
   background: var(--warn-bg); border-radius: 4px; padding: 2px 7px;
 }
-.card-head select { margin-left: auto; }
+.card-head select { margin-left: auto; max-width: 100%; min-width: 0; }
 .card-head select + .btn, .card-head-note + .btn { margin-left: 8px; }
+.card-head h2 + .btn-png { margin-left: auto; }
 .card-tools { padding: 0 12px 8px; }
 .card-tools input { width: 100%; }
+#layer-select-hist { flex: 0 1 auto; }
+
+/* ---------------------------------------------------------- resizable cards
+ *
+ * `resize` needs a scroll container to act on, and max-width keeps a drag from
+ * spilling a card out of its grid column. Below 901px the layout is already
+ * doing the deciding, so resizing is switched off entirely rather than left to
+ * fight the responsive rules — and any size dragged at desktop width is
+ * dropped on the way down.
+ */
+@media (min-width: 901px) {
+  .card[data-resizable], .panel[data-resizable] {
+    resize: both;
+    overflow: auto;
+    max-width: 100%;
+    min-width: 220px;
+    min-height: 120px;
+  }
+  /* Once a card carries a dragged height, its inner scroller takes the room
+     rather than leaving a hole under a fixed-height list. */
+  .card.is-sized, .panel.is-sized { display: flex; flex-direction: column; }
+  .card.is-sized > .card-head, .card.is-sized > .card-tools { flex: 0 0 auto; }
+  .card.is-sized .tree-scroll,
+  .card.is-sized .hits-scroll,
+  .card.is-sized .lst-body { max-height: none; flex: 1 1 auto; min-height: 0; }
+  .card.is-sized .section-view,
+  .card.is-sized .coremap-wrap { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+  .card.is-sized .coremap { flex: 1 1 auto; min-height: 0; }
+  .card.is-sized .coremap-svg, .card.is-sized .crd-schematic { max-height: 100%; }
+  .card.is-sized .chart-host { flex: 1 1 auto; min-height: 0; }
+}
+@media (max-width: 900px) {
+  [data-resizable] { width: auto !important; height: auto !important; }
+}
 
 /* -------------------------------------------------------------- navigator */
 
 .tree-scroll { max-height: 46vh; overflow: auto; padding: 0 6px 8px; }
+/* In Sections & Search the viewer sits directly under the tree, so the tree
+   gives up some height to keep the text it opens above the fold. */
+body[data-view="sections"] .tree-scroll { max-height: 38vh; }
 .hits-scroll { max-height: 34vh; overflow: auto; padding: 0 6px 8px; }
 
 .tree-case { margin-bottom: 2px; }
@@ -549,13 +666,14 @@ body[data-view="sections"] .layout {
 
 /* ---------------------------------------------------------------- core map */
 
-/* The map is capped at ~0.7x its former footprint so it sits inside the page
-   rather than being the page. It still fills the column below that width, so
-   narrow viewports lose nothing. */
+/* The map is capped so it sits inside the page rather than being the page; it
+   still fills the column below that width, so narrow viewports lose nothing.
+   Cap and column were both grown 20% (500 -> 600 px) — cell labels scale with
+   the viewBox, so bigger cap means bigger type, not just more white. */
 .coremap-wrap { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
-.coremap { width: 100%; min-width: 0; max-width: 500px; margin-inline: auto; }
+.coremap { width: 100%; min-width: 0; max-width: 600px; margin-inline: auto; }
 .coremap-svg { width: 100%; height: auto; display: block; }
-.legend { max-width: 620px; margin-inline: auto; width: 100%; }
+.legend { max-width: 744px; margin-inline: auto; width: 100%; }
 
 .head-text {
   font: 650 26px/1 var(--sans);
@@ -564,7 +682,8 @@ body[data-view="sections"] .layout {
 }
 .cell-void { fill: var(--cell-void); }
 .cell { cursor: pointer; }
-.cell-bg { stroke: var(--panel); stroke-width: 1.5; }
+/* Same light source as the cards: each tile drops its shadow right and down. */
+.cell-bg { stroke: var(--panel); stroke-width: 1.5; filter: var(--shadow-cell); }
 .cell-bg.no-data, .cell-bg.crd-out { fill: var(--cell-empty); }
 .cell-bg.crd-out { fill: var(--crd-out); }
 .cell-label { font: 600 27px/1 var(--sans); pointer-events: none; opacity: .82; }
@@ -843,12 +962,37 @@ th.sortable:hover { color: var(--text); }
 th.sort-asc::after  { content: " ▲"; font-size: 8px; }
 th.sort-desc::after { content: " ▼"; font-size: 8px; }
 
-.sev-summary { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.sev-summary { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
 .sev-chip {
   padding: 3px 8px; border-radius: 12px; font: 600 10.5px/1.5 var(--sans);
   font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
 }
 .sev-chip.is-zero { opacity: .45; }
+/* Each counter is a filter. Pressed state has to survive on five different
+   chip backgrounds, so it is drawn in the chip's own ink. */
+button.sev-chip { cursor: pointer; font-family: var(--sans); }
+button.sev-chip:hover:not(:disabled) { border-color: currentColor; }
+button.sev-chip:disabled { cursor: default; }
+button.sev-chip[aria-pressed="true"] {
+  border-color: currentColor;
+  box-shadow: inset 0 0 0 1px currentColor;
+  font-weight: 800;
+}
+button.sev-chip[aria-pressed="true"]::before { content: "✓ "; }
+
+.diag-filter-line {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 0 10px; padding: 5px 9px; border-radius: 5px;
+  font-size: 11px; color: var(--text-dim);
+  background: var(--panel-2); border: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.diag-filter-line.is-filtered {
+  background: var(--accent-soft); color: var(--accent); font-weight: 650;
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.diag-filter-line .btn { margin-left: auto; }
 .sev-error, .sev-chip.sev-error     { background: var(--err-bg);  color: var(--err); }
 .sev-warning, .sev-chip.sev-warning { background: var(--warn-bg); color: var(--warn); }
 .sev-caution, .sev-chip.sev-caution { background: var(--note-bg); color: var(--note); }
@@ -1084,14 +1228,22 @@ th.sort-desc::after { content: " ▼"; font-size: 8px; }
 
   .toolbar, .tabs, .header-actions, .skip-link, .view-nav,
   .tooltip, .toast, .hero, #load-dialog, .chart-data, .card-tools,
-  #section-copy, .menu, .tt-hint { display: none !important; }
+  #section-copy, .menu, .tt-hint, .btn-png, .card-head-tools,
+  .diag-filter-line { display: none !important; }
 
   .app-header { position: static; box-shadow: none; border-bottom: 1px solid #000; padding: 0 0 6px; }
 
   /* A printed report is one document: every view goes on the page, in order,
      regardless of which one happened to be on screen. */
   .layout { display: block; padding: 0; }
-  .view[hidden], #nav-card[hidden], #rail-right[hidden], .panel[hidden] {
+  .view[hidden], #nav-card[hidden], #meta-card[hidden], #rail-right[hidden],
+  .panel[hidden] {
+    display: block !important;
+  }
+  /* A dragged card size is a screen-time decision; on paper the column rules. */
+  [data-resizable]:not([hidden]) {
+    resize: none !important;
+    width: auto !important; height: auto !important;
     display: block !important;
   }
   .view { break-before: auto; }

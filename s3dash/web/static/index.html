@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>SIMULATE-3 Core Analysis</title>
+<title>Vision: Nuclear Core Analysis</title>
 <link rel="icon" href="data:," />
 <link rel="stylesheet" href="/static/css/app.css" />
 </head>
@@ -15,7 +15,7 @@
   <div class="brand">
     <span class="brand-mark" aria-hidden="true">S3</span>
     <span class="brand-text">
-      <span class="brand-title">SIMULATE&#8209;3 Core Analysis</span>
+      <span class="brand-title">Vision: Nuclear Core Analysis</span>
       <span class="brand-sub" id="hdr-file">No listing loaded</span>
     </span>
   </div>
@@ -23,12 +23,39 @@
   <nav class="view-nav" id="view-nav" aria-label="Views" hidden>
     <a class="viewtab" href="#/map"      data-view="map">Core map</a>
     <a class="viewtab" href="#/plots"    data-view="plots">Plots</a>
-    <a class="viewtab" href="#/sections" data-view="sections">Sections</a>
+    <a class="viewtab" href="#/sections" data-view="sections">Sections &amp; Search</a>
   </nav>
 
   <div class="header-actions">
     <span id="completion-chip" class="completion-chip" hidden></span>
-    <button type="button" id="status-badge" class="status-badge" hidden></button>
+    <div id="status-badge" class="status-badge" role="group" aria-label="Run diagnostics summary" hidden></div>
+
+    <details class="menu menu-export" id="export-menu" hidden>
+      <summary class="btn" role="button" aria-haspopup="menu" aria-label="Export this run">Export <span class="menu-caret" aria-hidden="true">▾</span></summary>
+      <div class="menu-body menu-list" role="menu" aria-label="Export">
+        <button type="button" class="menu-item" role="menuitem" id="exp-json"
+                aria-label="Export JSON — the full parsed payload">
+          <span class="menu-item-name">JSON</span>
+          <span class="menu-item-note">full parsed payload</span>
+        </button>
+        <button type="button" class="menu-item" role="menuitem" id="exp-csv"
+                aria-label="Export CSV — the assembly table for the current step">
+          <span class="menu-item-name">CSV</span>
+          <span class="menu-item-note">assembly table, current step</span>
+        </button>
+        <button type="button" class="menu-item" role="menuitem" id="exp-pdf"
+                aria-label="Export a PDF report for the current step">
+          <span class="menu-item-name">PDF Report</span>
+          <span class="menu-item-note">formatted report, current step</span>
+        </button>
+        <button type="button" class="menu-item" role="menuitem" id="exp-print"
+                aria-label="Print every view as one document">
+          <span class="menu-item-name">Print</span>
+          <span class="menu-item-note">every view, one document</span>
+        </button>
+      </div>
+    </details>
+
     <button type="button" id="btn-load" class="btn">Load listing</button>
     <button type="button" id="btn-theme" class="btn btn-icon" aria-label="Toggle colour theme" title="Toggle colour theme (light / dark / auto)">
       <span id="theme-glyph" aria-hidden="true">◐</span>
@@ -39,11 +66,6 @@
 <div class="notice-strip" id="parse-notes" hidden></div>
 
 <div class="toolbar" id="toolbar" hidden>
-  <div class="tool-group" data-views="map plots">
-    <label for="layer-select">Layer</label>
-    <select id="layer-select"></select>
-  </div>
-
   <div class="tool-group tool-step" data-views="map plots">
     <span class="tool-label">Step</span>
     <button type="button" class="btn btn-step" id="step-prev" title="Previous step (←)" aria-label="Previous step">◀</button>
@@ -68,14 +90,6 @@
       <summary class="btn" role="button" aria-haspopup="true">Filter <span id="filter-count" class="pill pill-mini" hidden></span></summary>
       <div class="menu-body" id="filter-body"></div>
     </details>
-    <label class="switch"><input type="checkbox" id="flagged-only" /><span>Flagged only</span></label>
-  </div>
-
-  <div class="tool-group tool-export" data-views="map plots sections">
-    <span class="tool-label">Export</span>
-    <button type="button" class="btn" id="exp-json">JSON</button>
-    <button type="button" class="btn" id="exp-csv">CSV</button>
-    <button type="button" class="btn" id="exp-print">Print</button>
   </div>
 </div>
 
@@ -83,26 +97,15 @@
 
 <main class="layout" id="layout" hidden>
 
-  <aside class="rail rail-left" aria-label="Run metadata and listing navigator">
-    <section class="card" id="meta-card">
+  <aside class="rail rail-left" aria-label="Run metadata and text hits">
+    <section class="card" id="meta-card" data-resizable>
       <header class="card-head">
         <h2>Run</h2>
       </header>
       <div id="meta-strip" class="meta-strip"></div>
     </section>
 
-    <section class="card card-flush" id="nav-card" hidden>
-      <header class="card-head">
-        <h2>Listing navigator</h2>
-        <span class="pill" id="nav-count"></span>
-      </header>
-      <div class="card-tools">
-        <input type="search" id="tree-filter" placeholder="Filter sections…" aria-label="Filter sections" />
-      </div>
-      <div class="tree-scroll"><div id="nav-tree" class="tree"></div></div>
-    </section>
-
-    <section class="card card-flush" id="search-card" hidden>
+    <section class="card card-flush" id="search-card" data-resizable hidden>
       <header class="card-head">
         <h2>Text hits</h2>
         <span class="pill" id="search-count"></span>
@@ -114,10 +117,18 @@
   <div class="col-center">
 
     <!-- ------------------------------------------------------------ map -->
-    <section class="card view" id="view-map" aria-label="Core map">
-      <header class="card-head">
-        <h2 id="coremap-title">Core map</h2>
-        <span class="card-head-note" id="coremap-note"></span>
+    <section class="card view" id="view-map" data-resizable aria-label="Core map">
+      <header class="card-head card-head-stack">
+        <div class="card-head-row">
+          <h2 id="coremap-title">Core map</h2>
+          <span class="card-head-note" id="coremap-note"></span>
+        </div>
+        <div class="card-head-row card-head-tools">
+          <label class="tool-label" for="layer-select">Layer</label>
+          <select id="layer-select" aria-label="Core map layer"></select>
+          <label class="switch"><input type="checkbox" id="flagged-only" /><span>Flagged only</span></label>
+          <button type="button" class="btn btn-mini btn-png" data-png="coremap" data-png-name="core-map">Export PNG</button>
+        </div>
       </header>
       <div class="coremap-wrap">
         <div id="coremap" class="coremap"></div>
@@ -128,40 +139,47 @@
     <!-- ---------------------------------------------------------- plots -->
     <div class="view" id="view-plots" hidden>
       <div class="chart-grid">
-        <section class="card" id="chart-depletion-card">
+        <section class="card" id="chart-hist-card" data-resizable>
           <header class="card-head">
-            <h2>Depletion progression</h2>
-            <select id="depl-metric" aria-label="Depletion chart Y axis"></select>
+            <h2>Layer distribution</h2>
+            <label class="sr-only" for="layer-select-hist">Layer</label>
+            <select id="layer-select-hist" aria-label="Layer distribution variable"></select>
+            <button type="button" class="btn btn-mini btn-png" data-png="chart-hist" data-png-name="layer-distribution">Export PNG</button>
           </header>
-          <div id="chart-depletion" class="chart-host"></div>
+          <span class="card-head-note card-sub-note" id="hist-note"></span>
+          <div id="chart-hist" class="chart-host"></div>
         </section>
 
-        <section class="card" id="chart-axial-card">
+        <section class="card" id="chart-axial-card" data-resizable>
           <header class="card-head">
             <h2>Axial profile</h2>
             <select id="axial-column" aria-label="Axial chart variable"></select>
+            <button type="button" class="btn btn-mini btn-png" data-png="chart-axial" data-png-name="axial-profile">Export PNG</button>
           </header>
           <div id="chart-axial" class="chart-host"></div>
         </section>
 
-        <section class="card" id="chart-hist-card">
+        <section class="card" id="chart-depletion-card" data-resizable>
           <header class="card-head">
-            <h2>Layer distribution</h2>
-            <span class="card-head-note" id="hist-note"></span>
+            <h2>Depletion progression</h2>
+            <select id="depl-metric" aria-label="Depletion chart Y axis"></select>
+            <button type="button" class="btn btn-mini btn-png" data-png="chart-depletion" data-png-name="depletion-progression">Export PNG</button>
           </header>
-          <div id="chart-hist" class="chart-host"></div>
+          <div id="chart-depletion" class="chart-host"></div>
         </section>
 
-        <section class="card" id="chart-inventory-card">
+        <section class="card" id="chart-inventory-card" data-resizable>
           <header class="card-head">
             <h2>Assembly count by fuel type</h2>
+            <button type="button" class="btn btn-mini btn-png" data-png="chart-inventory" data-png-name="fuel-type-count">Export PNG</button>
           </header>
           <div id="chart-inventory" class="chart-host"></div>
         </section>
 
-        <section class="card" id="chart-cpu-card">
+        <section class="card" id="chart-cpu-card" data-resizable>
           <header class="card-head">
             <h2>CPU by subroutine</h2>
+            <button type="button" class="btn btn-mini btn-png" data-png="chart-cpu" data-png-name="cpu-by-subroutine">Export PNG</button>
           </header>
           <div id="chart-cpu" class="chart-host"></div>
         </section>
@@ -169,14 +187,29 @@
     </div>
 
     <!-- -------------------------------------------------------- sections -->
-    <section class="card view" id="view-sections" hidden aria-label="Section viewer">
-      <header class="card-head">
-        <h2>Section viewer</h2>
-        <span class="card-head-note" id="section-note">Pick a section in the navigator</span>
-        <button type="button" class="btn btn-mini" id="section-copy" hidden>Copy</button>
-      </header>
-      <div id="section-view" class="section-view"></div>
-    </section>
+    <!-- Navigator on top, the raw-text viewer immediately under it, so a
+         picked section reads without hunting down the page. -->
+    <div class="view" id="view-sections" hidden>
+      <section class="card card-flush" id="nav-card" data-resizable>
+        <header class="card-head">
+          <h2>Listing navigator</h2>
+          <span class="pill" id="nav-count"></span>
+        </header>
+        <div class="card-tools">
+          <input type="search" id="tree-filter" placeholder="Filter sections…" aria-label="Filter sections" />
+        </div>
+        <div class="tree-scroll"><div id="nav-tree" class="tree"></div></div>
+      </section>
+
+      <section class="card" id="section-card" data-resizable aria-label="Section viewer">
+        <header class="card-head">
+          <h2>Section viewer</h2>
+          <span class="card-head-note" id="section-note">Pick a section in the navigator</span>
+          <button type="button" class="btn btn-mini" id="section-copy" hidden>Copy</button>
+        </header>
+        <div id="section-view" class="section-view"></div>
+      </section>
+    </div>
 
   </div>
 
@@ -186,9 +219,9 @@
       <button type="button" class="tab" role="tab" id="tab-diagnostics" aria-controls="panel-diagnostics" aria-selected="false">Diagnostics <span class="pill pill-mini" id="tab-diag-count"></span></button>
       <button type="button" class="tab" role="tab" id="tab-inventory"   aria-controls="panel-inventory"   aria-selected="false">Inventory</button>
     </div>
-    <div class="panel" role="tabpanel" id="panel-inspector"   aria-labelledby="tab-inspector"></div>
-    <div class="panel" role="tabpanel" id="panel-diagnostics" aria-labelledby="tab-diagnostics" hidden></div>
-    <div class="panel" role="tabpanel" id="panel-inventory"   aria-labelledby="tab-inventory" hidden></div>
+    <div class="panel" role="tabpanel" id="panel-inspector"   aria-labelledby="tab-inspector" data-resizable></div>
+    <div class="panel" role="tabpanel" id="panel-diagnostics" aria-labelledby="tab-diagnostics" data-resizable hidden></div>
+    <div class="panel" role="tabpanel" id="panel-inventory"   aria-labelledby="tab-inventory" data-resizable hidden></div>
   </aside>
 
 </main>
