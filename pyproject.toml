@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "s3dash"
+version = "1.0.0"
+description = "SIMULATE-3 listing parser and report generators"
+requires-python = ">=3.10"
+# Deliberately empty: app.py/__main__.py (the only modules needing fastapi,
+# uvicorn) are never imported by the browser build, and reportlab is
+# installed as a separate, explicit micropip step -- declaring it here too
+# would have micropip re-resolve it a second time for no benefit.
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["s3dash*"]
