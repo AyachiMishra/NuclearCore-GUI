@@ -91,7 +91,11 @@ network" property holds for their data specifically.
 Ships: file upload, the BEAVRS sample, the core map (all existing layers —
 power, fuel type, batch, control rods), the depletion/axial/histogram
 charts, the diagnostics review, section search/raw-text viewer, and
-CSV/JSON/HTML-report/PDF-report/PNG exports.
+CSV/JSON/PDF-report/PNG exports. ("Print" in the export menu calls the
+browser's own `window.print()` on the live page — confirmed while planning
+that it never touches the HTML-report endpoint, so it needs no porting at
+all; the HTML-report endpoint itself has no UI entry point today and is out
+of scope here.)
 
 Unchanged: the parser, the report generators, and essentially all of the
 frontend UI. This is a transport-layer port, not a rewrite — the smaller the
