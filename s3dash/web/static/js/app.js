@@ -31,8 +31,8 @@ import {
   parseSample,
   parseUpload,
   searchText,
-  exportJsonUrl,
-  exportCsvUrl,
+  exportJson,
+  exportCsv,
   fetchReportPdf,
 } from './api.js';
 import { initCoreMap, renderCoreMap, hideTooltip } from './coremap.js';
@@ -476,15 +476,25 @@ function wireControls() {
   // nuisance rather than a shortcut.
   wireMenu($('#export-menu'));
 
-  $('#exp-json').addEventListener('click', () => {
+  $('#exp-json').addEventListener('click', async () => {
     if (!state.runId) return;
-    download(exportJsonUrl(state.runId));
+    try {
+      const { blob, filename } = await exportJson(state.runId);
+      saveBlob(blob, filename || `${fileStem()}.parsed.json`);
+    } catch (err) {
+      toast(err.message || 'The JSON export failed.', 'error');
+    }
     closeMenu($('#export-menu'));
   });
-  $('#exp-csv').addEventListener('click', () => {
+  $('#exp-csv').addEventListener('click', async () => {
     const sp = statePoint();
     if (!state.runId || !sp) return;
-    download(exportCsvUrl(state.runId, sp.step));
+    try {
+      const { blob, filename } = await exportCsv(state.runId, sp.step);
+      saveBlob(blob, filename || `${fileStem()}.step${sp.step}.csv`);
+    } catch (err) {
+      toast(err.message || 'The CSV export failed.', 'error');
+    }
     closeMenu($('#export-menu'));
   });
   $('#exp-pdf').addEventListener('click', exportPdf);

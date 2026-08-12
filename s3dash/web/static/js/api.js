@@ -62,12 +62,23 @@ export async function searchText(runId, query) {
   return res.json();
 }
 
-export function exportJsonUrl(runId) {
-  return `/api/run/${encodeURIComponent(runId)}/export.json`;
+function filenameFromDisposition(res) {
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+  return match ? decodeURIComponent(match[1]) : null;
 }
 
-export function exportCsvUrl(runId, step) {
-  return `/api/run/${encodeURIComponent(runId)}/export.csv?step=${encodeURIComponent(step)}`;
+/** GET /api/run/{id}/export.json -> {blob, filename} */
+export async function exportJson(runId) {
+  const res = await check(await fetch(`/api/run/${encodeURIComponent(runId)}/export.json`));
+  return { blob: await res.blob(), filename: filenameFromDisposition(res) };
+}
+
+/** GET /api/run/{id}/export.csv -> {blob, filename} */
+export async function exportCsv(runId, step) {
+  const url = `/api/run/${encodeURIComponent(runId)}/export.csv?step=${encodeURIComponent(step)}`;
+  const res = await check(await fetch(url));
+  return { blob: await res.blob(), filename: filenameFromDisposition(res) };
 }
 
 /** GET /api/run/{id}/report.pdf -> {blob, filename}
@@ -82,8 +93,5 @@ export async function fetchReportPdf(runId, step) {
   const res = await check(
     await fetch(`/api/run/${encodeURIComponent(runId)}/report.pdf?${q}`)
   );
-  const blob = await res.blob();
-  const disposition = res.headers.get('Content-Disposition') || '';
-  const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
-  return { blob, filename: match ? decodeURIComponent(match[1]) : 'report.pdf' };
+  return { blob: await res.blob(), filename: filenameFromDisposition(res) || 'report.pdf' };
 }
