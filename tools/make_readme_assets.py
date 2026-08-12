@@ -33,6 +33,30 @@ RAMP = [
 INK_LIGHT, INK_DARK = "#33363b", "#ffffff"
 MUTED, LINE, PANEL = "#6b7280", "#dcdfe4", "#f8f9fb"
 
+# Colourblind-safe categorical palette -- matches the dashboard's fuel-type
+# layer (coremap.js CATEGORICAL) so the two never disagree on what colour a
+# type is.
+CATEGORICAL = [
+    "#0072b2", "#e69f00", "#009e73", "#cc79a7", "#56b4e9", "#d55e00", "#8c6bb1",
+    "#b8a600", "#1b7837", "#8c510a", "#4a7fb5", "#c994c7", "#3f8f8f", "#a35a00",
+    "#5d6d7e", "#7f3b8c", "#00857c", "#b35a5a", "#4d4d4d", "#9a8c00",
+]
+
+
+def _categorical(i: int) -> str:
+    return CATEGORICAL[i % len(CATEGORICAL)]
+
+
+def _ink_for(hex_colour: str) -> str:
+    """Light or dark ink, by the fill's actual perceptual brightness.
+
+    Unlike the sequential ramp, categorical colours aren't ordered light to
+    dark, so the threshold trick in ``_colour`` doesn't apply here.
+    """
+    r, g, b = (int(hex_colour[i : i + 2], 16) for i in (1, 3, 5))
+    luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+    return INK_LIGHT if luminance > 0.55 else INK_DARK
+
 
 def _colour(value: float | None, lo: float, hi: float) -> tuple[str, bool]:
     if value is None:
@@ -136,6 +160,104 @@ def core_map_svg(payload: dict, code: str = "2RPF", step: int = 0) -> str:
              f'fill="{MUTED}">{lo:.3f}</text>')
     o.append(f'<text x="{pad + 156 + len(RAMP) * sw}" y="{ly - 4}" font-size="11" '
              f'fill="{MUTED}">{hi:.3f}</text>')
+    o.append("</svg>")
+    return "".join(o)
+
+
+def loading_pattern_svg(payload: dict) -> str:
+    """Core map coloured and labelled by fuel assembly type.
+
+    Type names (``PWRU310W16`` and the like, from the Assembly Physical
+    Descriptions block -- the resolved names, not the raw echoed FUE.TYP/
+    FUE.ZON numbers) run too long to print inside a cell, so each cell
+    carries its short type number and the legend below spells out what each
+    number means. Same convention the dashboard's own "Fuel type" layer uses.
+    """
+    geom = payload["geometry"]
+    n = geom["iafull"]
+
+    names = {t["fuelType"]: t["name"] for t in payload.get("assemblyTypes", [])}
+    counts: dict[int, int] = {}
+    for a in payload["assemblies"]:
+        ft = a["fuelType"]
+        if ft is not None:
+            counts[ft] = counts.get(ft, 0) + 1
+    types = sorted(counts)
+    if not types:
+        raise SystemExit("no assemblies carry a fuel type in this listing")
+    colour_of = {ft: _categorical(i) for i, ft in enumerate(types)}
+
+    cell, pad, top = 46, 34, 74
+    w = n * cell + pad * 2
+    # Column width is derived from the image's actual width, not a fixed
+    # guess -- a hardcoded column count/width overflows the page on a small
+    # core (few columns available) exactly as easily as it wastes space on a
+    # large one. 165px is enough for the longest realistic legend entry
+    # ("12 · PWRU310W16 · 32").
+    min_col_w = 165
+    per_row = max(1, (w - 2 * pad) // min_col_w)
+    sw = (w - 2 * pad) / per_row
+    legend_rows = -(-len(types) // per_row)
+    legend_h = 20 + legend_rows * 22
+    h = n * cell + pad + top + legend_h + 20
+
+    letters: dict[int, str] = {}
+    for a in payload["assemblies"]:
+        letters.setdefault(a["col"], a["site"].split("-")[0])
+
+    o: list[str] = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" '
+        f'height="{h}" font-family="ui-sans-serif,Segoe UI,system-ui,sans-serif" '
+        f'role="img" aria-label="Fuel loading pattern core map">',
+        f'<rect width="{w}" height="{h}" fill="#ffffff"/>',
+        f'<text x="{pad}" y="30" font-size="19" font-weight="600" fill="#1b1d21">'
+        f'Fuel loading pattern</text>',
+        f'<text x="{pad}" y="52" font-size="13" fill="{MUTED}">'
+        f'{payload["meta"].get("plant") or "core"} &#183; {n}&#215;{n} &#183; '
+        f'{geom["fraction"]}-core {geom["symmetry"].lower()} &#183; '
+        f'{len(payload["assemblies"])} fuelled positions &#183; {len(types)} fuel types</text>',
+    ]
+
+    for c in range(1, n + 1):
+        x = pad + (c - 0.5) * cell
+        o.append(
+            f'<text x="{x:.1f}" y="{top - 10}" text-anchor="middle" font-size="12" '
+            f'fill="{MUTED}">{letters.get(c, c)}</text>'
+        )
+    for r in range(1, n + 1):
+        y = top + (r - 0.5) * cell
+        o.append(
+            f'<text x="{pad - 10}" y="{y + 4:.1f}" text-anchor="end" font-size="12" '
+            f'fill="{MUTED}">{r}</text>'
+        )
+
+    for a in payload["assemblies"]:
+        ft = a["fuelType"]
+        fill = colour_of.get(ft, "#eceef1")
+        x, y = pad + (a["col"] - 1) * cell, top + (a["row"] - 1) * cell
+        o.append(
+            f'<rect x="{x + 1}" y="{y + 1}" width="{cell - 2}" height="{cell - 2}" rx="4" '
+            f'fill="{fill}" stroke="#00000014"/>'
+        )
+        if ft is not None:
+            o.append(
+                f'<text x="{x + cell / 2:.1f}" y="{y + cell / 2 + 5:.1f}" text-anchor="middle" '
+                f'font-size="15" font-weight="600" fill="{_ink_for(fill)}">{ft}</text>'
+            )
+
+    ly = top + n * cell + 26
+    o.append(f'<text x="{pad}" y="{ly - 8}" font-size="11" fill="{MUTED}">'
+             f'CELL NUMBER = FUEL TYPE</text>')
+    sh = 22
+    for i, ft in enumerate(types):
+        row, col = divmod(i, per_row)
+        sx, sy = pad + col * sw, ly + row * sh + 6
+        label = names.get(ft) or f"Type {ft}"
+        o.append(f'<rect x="{sx:.1f}" y="{sy}" width="13" height="13" rx="3" fill="{colour_of[ft]}"/>')
+        o.append(
+            f'<text x="{sx + 19:.1f}" y="{sy + 11:.1f}" font-size="11" fill="#1b1d21">'
+            f'{ft} &#183; {label} <tspan fill="{MUTED}">&#183; {counts[ft]}</tspan></text>'
+        )
     o.append("</svg>")
     return "".join(o)
 
@@ -246,7 +368,11 @@ def main(argv: list[str] | None = None) -> int:
     payload = parse_file(args.listing).payload
     args.outdir.mkdir(parents=True, exist_ok=True)
 
-    assets = {"core-map.svg": core_map_svg(payload), "depletion.svg": depletion_svg(payload)}
+    assets = {
+        "core-map.svg": core_map_svg(payload),
+        "loading-pattern.svg": loading_pattern_svg(payload),
+        "depletion.svg": depletion_svg(payload),
+    }
     axial = axial_svg(payload)
     if axial:
         assets["axial.svg"] = axial

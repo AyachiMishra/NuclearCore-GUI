@@ -48,6 +48,8 @@ the listing (the .out file), thus ensuring numbers don’t get invented out of t
 
 ![Core map](docs/img/core-map.svg)
 
+![Fuel loading pattern](docs/img/loading-pattern.svg)
+
 <p align="center">
   <img src="docs/img/depletion.svg" alt="Depletion progression" width="62%">
   <img src="docs/img/axial.svg" alt="Axial power profile" width="34%">
