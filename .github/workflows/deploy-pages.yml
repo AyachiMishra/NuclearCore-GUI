@@ -1,0 +1,54 @@
+name: Deploy Pages demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 's3dash/parser/**'
+      - 's3dash/web/report.py'
+      - 's3dash/web/pdfreport.py'
+      - 's3dash/web/browser.py'
+      - 'webdemo/**'
+      - 's3dash/web/static/**'
+      - 'pyproject.toml'
+      - 'sample_data/9074.out'
+      - 'tools/build_webdemo.py'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build the s3dash wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+      - name: Assemble the site
+        run: python tools/build_webdemo.py
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
