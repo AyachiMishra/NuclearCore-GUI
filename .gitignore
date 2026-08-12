@@ -5,10 +5,16 @@
 *.egg-info/
 .superpowers/
 output/
+build/
+dist/
+site/
 
 # Plant data and anything derived from it stays local: these are SIMULATE-3
-# outputs for specific plant models, not ours to publish.
-sample_data/
+# outputs for specific plant models, not ours to publish. BEAVRS is the one
+# exception -- an openly published MIT benchmark, not proprietary plant
+# data, and bundled with the hosted demo for that reason.
+sample_data/*
+!sample_data/9074.out
 docs/sample_payload_*.json
 output/
 .claude/settings.local.json
