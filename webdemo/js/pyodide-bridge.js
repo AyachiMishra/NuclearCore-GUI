@@ -35,7 +35,9 @@ export function boot() {
     await pyodide.loadPackage('micropip');
     const micropip = pyodide.pyimport('micropip');
     await micropip.install('reportlab');
-    await micropip.install('./s3dash.whl');
+    // Filename fixed by tools/build_webdemo.py -- see the comment there for
+    // why the version segment is a placeholder rather than the real one.
+    await micropip.install('./s3dash-0-py3-none-any.whl');
     browserModule = pyodide.pyimport('s3dash.web.browser');
   })();
   return pyodideReady;

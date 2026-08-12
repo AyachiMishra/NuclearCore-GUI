@@ -7,6 +7,13 @@
       "runtimeArgs": ["-m", "uvicorn", "s3dash.web.app:app", "--port", "8000"],
       "port": 8000,
       "url": "http://127.0.0.1:8000"
+    },
+    {
+      "name": "webdemo",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "--directory", "site", "8091"],
+      "port": 8091,
+      "url": "http://127.0.0.1:8091"
     }
   ]
 }

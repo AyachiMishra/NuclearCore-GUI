@@ -42,7 +42,14 @@ def build(outdir: Path) -> None:
         raise SystemExit(
             "No wheel found in dist/ -- run `python -m build --wheel` first (see Task 2)."
         )
-    shutil.copy2(wheels[-1], outdir / "s3dash.whl")
+    # Renamed to a fixed filename so pyodide-bridge.js never has to change
+    # when pyproject.toml's version bumps -- but it must still be a
+    # syntactically valid wheel filename (5 dash-separated parts), because
+    # micropip parses name/version/tags *from the filename itself* before
+    # it will install a local wheel. "0" is a placeholder version, never
+    # read for anything: we install by direct file reference, never by
+    # resolving a version constraint.
+    shutil.copy2(wheels[-1], outdir / "s3dash-0-py3-none-any.whl")
 
     print(f"Assembled {outdir.relative_to(ROOT)}/ from webdemo/ + shared static files")
 
