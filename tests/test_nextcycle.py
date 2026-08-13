@@ -287,6 +287,46 @@ class TestGenerateInp:
         assert "'WRE' 's3.plant.c02.depl.res' /" in result.text
 
 
+from s3dash.parser.nextcycle import replay_changes
+
+
+class TestReplayChanges:
+    def test_folds_changes_in_order_from_the_original(self):
+        geom, entries = TestValidate()._base()
+        from s3dash.parser.geometry import symmetry_orbit
+
+        a_orbit = symmetry_orbit(2, 5, geom)
+        b_orbit = symmetry_orbit(3, 3, geom)
+        # swap out, then swap back -- net result equals the original,
+        # but only if replay_changes actually applies both in order
+        # rather than e.g. only the last one.
+        changes = [
+            PositionChange(2, 5, 3, 3),
+            PositionChange(2, 5, 3, 3),
+        ]
+        result, operations = replay_changes(entries, changes, geom)
+        assert result == entries
+        assert len(operations) == 2
+        assert all(op.operation == "swap" for op in operations)
+
+    def test_empty_change_list_returns_the_original_unchanged(self):
+        geom, entries = TestValidate()._base()
+        result, operations = replay_changes(entries, [], geom)
+        assert result == entries
+        assert operations == []
+
+    def test_propagates_validation_error_from_a_bad_change(self):
+        geom, entries = TestValidate()._base()
+        with pytest.raises(ValidationError, match="No assembly"):
+            replay_changes(entries, [PositionChange(50, 50, 2, 5)], geom)
+
+    def test_original_never_mutated(self):
+        geom, entries = TestValidate()._base()
+        snapshot = dict(entries)
+        replay_changes(entries, [PositionChange(2, 5, 3, 3)], geom)
+        assert entries == snapshot
+
+
 class TestInferNextRestartFilename:
     def test_increments_the_cycle_number_the_source_deck_demonstrates(self):
         from s3dash.parser.nextcycle import infer_next_restart_filename

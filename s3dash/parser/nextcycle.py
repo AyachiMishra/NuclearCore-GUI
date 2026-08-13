@@ -319,3 +319,25 @@ def infer_next_restart_filename(current_filename: str) -> str | None:
     incremented = str(int(digits) + 1).zfill(len(digits))
     start, end = m.span(1)
     return current_filename[:start] + incremented + current_filename[end:]
+
+
+def replay_changes(
+    original_entries: dict[tuple[int, int], LoadingEntry],
+    changes: list[PositionChange],
+    geom: Geometry,
+) -> tuple[dict[tuple[int, int], LoadingEntry], list[AppliedOperation]]:
+    """Fold apply_change over `changes` in order, starting from
+    `original_entries`. The one place app.py and browser.py both call
+    into instead of each reimplementing this loop.
+
+    Raises ValidationError (from whichever apply_change call fails) if
+    any change is invalid. The exception message already names the
+    specific (row, col) involved -- more actionable for a caller than a
+    bare list index would be, so this does not add one.
+    """
+    entries = original_entries
+    operations: list[AppliedOperation] = []
+    for change in changes:
+        entries, op = apply_change(entries, change, geom)
+        operations.append(op)
+    return entries, operations
