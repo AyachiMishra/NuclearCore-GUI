@@ -37,6 +37,9 @@ assumes axial data exists, it breaks on one of them.
 | `GET`  | `/api/run/{runId}/search?q=` | `{hits:[{line,text,case,step,page}], truncated}` |
 | `GET`  | `/api/run/{runId}/export.json` | download full payload |
 | `GET`  | `/api/run/{runId}/export.csv?step=N` | download assembly table for a step |
+| `GET`  | `/api/run/{runId}/loading-pattern` | `{supported,entries,geometry,suggested}` or `{supported:false,reason}` |
+| `POST` | `/api/run/{runId}/loading-pattern/apply` | replay a change list from the original pattern → `{entries,operations,problems,valid}` |
+| `POST` | `/api/run/{runId}/loading-pattern/generate` | replay, validate, and generate the next-cycle `.inp` text → `{text,flaggedCards,filename}`; 422 if invalid |
 
 Errors are `{"detail": "..."}` with 4xx/5xx.
 
