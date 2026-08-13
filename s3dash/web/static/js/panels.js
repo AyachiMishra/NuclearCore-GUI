@@ -24,6 +24,7 @@ import {
 } from './state.js';
 import { categoricalColor } from './coremap.js';
 import { fetchSection } from './api.js';
+import { undo, redo, resetEdits } from './loadingeditor.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -1204,7 +1205,67 @@ export function renderLoadingEditorPanel() {
       : '';
     return;
   }
-  host.innerHTML = `<div class="empty-note">Drag an assembly on the map to begin. Every drag moves its full symmetry group together.</div>`;
+
+  const changes = state.editChanges.slice(0, state.editHistoryIndex);
+  const out = [];
+
+  if (changes.length) {
+    out.push(`<div class="notice-strip edit-banner">HYPOTHETICAL LOADING PATTERN — uncalculated</div>`);
+  }
+
+  out.push(
+    `<div class="edit-toolbar">` +
+      `<button type="button" class="btn btn-mini" id="edit-undo" ${state.editHistoryIndex <= 0 || state.editBusy ? 'disabled' : ''}>Undo</button>` +
+      `<button type="button" class="btn btn-mini" id="edit-redo" ${state.editHistoryIndex >= state.editChanges.length || state.editBusy ? 'disabled' : ''}>Redo</button>` +
+      `<button type="button" class="btn btn-mini" id="edit-reset" ${!changes.length || state.editBusy ? 'disabled' : ''}>Reset</button>` +
+      `<span class="pill pill-mini">${changes.length} change${changes.length === 1 ? '' : 's'}</span>` +
+      `</div>`
+  );
+
+  if (state.editError) {
+    out.push(`<div class="error-note">${esc(state.editError)}</div>`);
+  }
+
+  if (!changes.length) {
+    out.push(section('Changes', `<div class="empty-note">No changes yet. Drag an assembly on the map to begin.</div>`));
+  } else {
+    const ops = state.editOperations || [];
+    out.push(
+      section(
+        'Changes',
+        `<div class="table-wrap"><table class="data-table"><thead><tr>` +
+          `<th>Op</th><th>From</th><th>To</th><th>Moved</th><th>Displaced</th>` +
+          `</tr></thead><tbody>` +
+          ops
+            .map(
+              (op) =>
+                `<tr><td>${esc(op.operation)}</td><td class="mono">${esc(op.from)}</td>` +
+                `<td class="mono">${esc(op.to)}</td><td class="mono">${esc(op.fromToken)}</td>` +
+                `<td class="mono">${esc(op.toToken ?? '—')}</td></tr>`
+            )
+            .join('') +
+          `</tbody></table></div>`
+      )
+    );
+  }
+
+  if (changes.length) {
+    const problems = state.editProblems || [];
+    out.push(
+      section(
+        'Validation',
+        problems.length
+          ? `<div class="error-note">${problems.map((msg) => `<div>${esc(msg)}</div>`).join('')}</div>`
+          : `<div class="empty-note">Valid — every position is occupied exactly once and every symmetry group is intact.</div>`
+      )
+    );
+  }
+
+  host.innerHTML = out.join('');
+
+  $('#edit-undo').addEventListener('click', undo);
+  $('#edit-redo').addEventListener('click', redo);
+  $('#edit-reset').addEventListener('click', resetEdits);
 }
 
 /* --------------------------------------------------------------- clipboard */

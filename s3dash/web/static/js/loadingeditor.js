@@ -146,24 +146,28 @@ export function initLoadingEditor(host) {
 /** Push one drag as a new change, replaying from the original through the
  *  active history prefix. A new drag while editHistoryIndex is short of
  *  editChanges.length discards the redo tail -- standard undo/redo-with-
- *  new-action semantics. */
+ *  new-action semantics, so the stored array itself is truncated here. */
 export async function applyDrag(fromRow, fromCol, toRow, toCol) {
   const change = { fromRow, fromCol, toRow, toCol };
   const changes = state.editChanges.slice(0, state.editHistoryIndex);
   changes.push(change);
-  await replay(changes, changes.length);
+  await replay(changes, changes.length, changes);
 }
 
-/** POSTs `changes` (the active prefix) and stores the result. On failure,
- *  editChanges/editHistoryIndex are NOT advanced -- a rejected attempt
+/** POSTs `changesToSend` (the active prefix) and stores the result.
+ *  `fullChanges` is what gets written to editChanges -- for a new drag
+ *  this is the same (possibly redo-tail-truncated) array that was sent;
+ *  for undo/redo it is the ORIGINAL, untouched editChanges, since moving
+ *  the history pointer must never discard the array itself. On failure,
+ *  neither editChanges nor editHistoryIndex advance -- a rejected attempt
  *  leaves state exactly as it was before it. */
-async function replay(changes, historyIndex) {
+async function replay(changesToSend, historyIndex, fullChanges) {
   update({ editBusy: true, editError: null }, 'editChange');
   try {
-    const body = await applyLoadingPattern(state.runId, changes);
+    const body = await applyLoadingPattern(state.runId, changesToSend);
     update(
       {
-        editChanges: changes,
+        editChanges: fullChanges,
         editHistoryIndex: historyIndex,
         editModified: body.entries,
         editOperations: body.operations,
@@ -178,4 +182,38 @@ async function replay(changes, historyIndex) {
   } catch (err) {
     update({ editBusy: false, editError: err.message || String(err) }, 'editChange');
   }
+}
+
+/** Steps one change earlier. A no-op at the start of history. */
+export function undo() {
+  if (state.editBusy || state.editHistoryIndex <= 0) return;
+  const newIndex = state.editHistoryIndex - 1;
+  replay(state.editChanges.slice(0, newIndex), newIndex, state.editChanges);
+}
+
+/** Steps one change later (re-applies a change undo() stepped back from,
+ *  without discarding it -- only a NEW drag discards the redo tail). */
+export function redo() {
+  if (state.editBusy || state.editHistoryIndex >= state.editChanges.length) return;
+  const newIndex = state.editHistoryIndex + 1;
+  replay(state.editChanges.slice(0, newIndex), newIndex, state.editChanges);
+}
+
+/** Clears every change. No network call: editOriginal is the cached,
+ *  never-mutated starting pattern, so there is nothing to re-fetch. */
+export function resetEdits() {
+  if (state.editBusy) return;
+  update(
+    {
+      editChanges: [],
+      editHistoryIndex: 0,
+      editModified: null,
+      editOperations: [],
+      editProblems: [],
+      editValid: false,
+      editError: null,
+      editGenerated: null,
+    },
+    'editChange'
+  );
 }

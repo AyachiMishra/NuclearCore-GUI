@@ -342,6 +342,8 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
   font-size: 12px;
 }
 .notice-strip span { color: var(--text); }
+.edit-banner { border-radius: var(--radius); margin-bottom: 10px; font-weight: 700; letter-spacing: 0.02em; }
+.edit-toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 12px 0; }
 
 /* ----------------------------------------------------------------- toolbar */
 
