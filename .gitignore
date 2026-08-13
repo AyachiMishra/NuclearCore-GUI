@@ -18,3 +18,4 @@ sample_data/*
 docs/sample_payload_*.json
 output/
 .claude/settings.local.json
+.claude/
