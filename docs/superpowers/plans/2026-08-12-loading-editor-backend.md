@@ -232,7 +232,7 @@ def test_geometry_guardrail_rejects_non_quarter_core():
     geom.ihave = 4  # full core
     geom.symmetry = "ROTATIONAL"
     with pytest.raises(LoadingPatternError, match="quarter-core"):
-        parse_loading_pattern(["x"], geom, set(), assembly_count=1)
+        parse_loading_pattern(["'FUE.LAB' 4/", "  0  0"], geom, set(), assembly_count=1)
 
 
 def test_geometry_guardrail_rejects_non_rotational_symmetry():
@@ -242,7 +242,7 @@ def test_geometry_guardrail_rejects_non_rotational_symmetry():
     geom.ihave = 2
     geom.symmetry = "MIRROR"
     with pytest.raises(LoadingPatternError, match="rotational"):
-        parse_loading_pattern(["x"], geom, set(), assembly_count=1)
+        parse_loading_pattern(["'FUE.LAB' 4/", "  0  0"], geom, set(), assembly_count=1)
 
 
 @needs_listings
