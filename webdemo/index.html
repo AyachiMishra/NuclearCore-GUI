@@ -37,6 +37,7 @@
     <a class="viewtab" href="#/map"      data-view="map">Core map</a>
     <a class="viewtab" href="#/plots"    data-view="plots">Plots</a>
     <a class="viewtab" href="#/sections" data-view="sections">Sections &amp; Search</a>
+    <a class="viewtab" href="#/edit"     data-view="edit" id="viewtab-edit" hidden>Edit Loading Pattern</a>
   </nav>
 
   <div class="header-actions">
@@ -220,6 +221,24 @@
         </header>
         <div id="section-view" class="section-view"></div>
       </section>
+    </div>
+
+    <!-- ------------------------------------------------------- edit loading pattern -->
+    <div class="view" id="view-edit" hidden>
+      <div class="edit-layout">
+        <section class="card" id="edit-map-card" aria-label="Editable core map">
+          <header class="card-head">
+            <h2>Edit loading pattern</h2>
+            <span class="card-head-note" id="edit-map-note"></span>
+          </header>
+          <div class="coremap-wrap">
+            <div id="edit-coremap" class="coremap"></div>
+          </div>
+        </section>
+        <aside class="card card-flush" id="edit-panel-card" aria-label="Change summary and validation">
+          <div id="edit-panel"></div>
+        </aside>
+      </div>
     </div>
 
   </div>

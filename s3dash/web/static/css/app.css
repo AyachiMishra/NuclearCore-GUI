@@ -473,7 +473,8 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
 body[data-view="map"] .layout {
   grid-template-columns: minmax(230px, 290px) minmax(0, 672px) minmax(340px, 1fr);
 }
-body[data-view="plots"] .layout {
+body[data-view="plots"] .layout,
+body[data-view="edit"] .layout {
   grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
 }
 /* Sections & Search: the navigator and the raw-text viewer own the main
@@ -498,7 +499,8 @@ body[data-view="sections"] .rail-left { order: 2; }
 @media (max-width: 1340px) {
   .layout,
   body[data-view="map"] .layout,
-  body[data-view="plots"] .layout {
+  body[data-view="plots"] .layout,
+  body[data-view="edit"] .layout {
     grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
   }
   body[data-view="sections"] .layout { grid-template-columns: minmax(0, 1fr); }
@@ -511,6 +513,7 @@ body[data-view="sections"] .rail-left { order: 2; }
   .layout,
   body[data-view="map"] .layout,
   body[data-view="plots"] .layout,
+  body[data-view="edit"] .layout,
   body[data-view="sections"] .layout,
   body[data-view="sections"].has-hits .layout {
     grid-template-columns: minmax(0, 1fr);
@@ -670,6 +673,14 @@ body[data-view="sections"] .tree-scroll { max-height: 38vh; }
    still fills the column below that width, so narrow viewports lose nothing.
    Cap and column were both grown 20% (500 -> 600 px) — cell labels scale with
    the viewBox, so bigger cap means bigger type, not just more white. */
+.edit-layout { display: flex; gap: 12px; align-items: start; }
+.edit-layout #edit-map-card { flex: 1 1 auto; min-width: 0; }
+.edit-layout #edit-panel-card { flex: 0 0 340px; max-height: 80vh; overflow: auto; }
+@media (max-width: 900px) {
+  .edit-layout { flex-direction: column; }
+  .edit-layout #edit-panel-card { flex: 1 1 auto; max-height: none; }
+}
+
 .coremap-wrap { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
 .coremap { width: 100%; min-width: 0; max-width: 600px; margin-inline: auto; }
 .coremap-svg { width: 100%; height: auto; display: block; }

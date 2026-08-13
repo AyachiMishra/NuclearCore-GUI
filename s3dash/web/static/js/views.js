@@ -12,10 +12,10 @@
 
 import { state, update } from './state.js';
 
-export const VIEWS = ['map', 'plots', 'sections'];
+export const VIEWS = ['map', 'plots', 'sections', 'edit'];
 const DEFAULT_VIEW = 'map';
 
-const VIEW_LABEL = { map: 'Core map', plots: 'Plots', sections: 'Sections & Search' };
+const VIEW_LABEL = { map: 'Core map', plots: 'Plots', sections: 'Sections & Search', edit: 'Edit Loading Pattern' };
 
 /** Parse "#/plots" -> "plots". Unknown or absent routes fall back to the map. */
 export function viewFromHash(hash = window.location.hash) {

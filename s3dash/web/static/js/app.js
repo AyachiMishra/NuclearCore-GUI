@@ -413,6 +413,14 @@ function setTab(tab) {
   update({ tab }, 'tab');
 }
 
+function syncEditTab() {
+  const tab = $('#viewtab-edit');
+  if (!tab) return;
+  const show = state.editSupported === true && !window.__S3_BUNDLE__;
+  tab.hidden = !show;
+  if (!show && state.view === 'edit') goTo('map');
+}
+
 function renderTabs() {
   for (const name of ['inspector', 'diagnostics', 'inventory']) {
     const on = state.tab === name;
@@ -905,6 +913,7 @@ function flush(keys) {
   }
   // Two headers carry the layer control; whichever was used, both must agree.
   if (any('layer')) syncLayerSelects();
+  if (any('payload', 'editSupport')) syncEditTab();
   if (any('step')) {
     renderStepReadout();
     if (onSections()) renderNavTree();
@@ -948,6 +957,7 @@ function renderView(view) {
 
 function onEnterView(view) {
   hideTooltip();
+  if (view === 'edit') syncEditTab();
   renderView(view);
 }
 
