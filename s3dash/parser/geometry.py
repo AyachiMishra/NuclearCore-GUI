@@ -216,6 +216,21 @@ def _images(r: int, c: int, n: int, symmetry: str, ihave: int) -> list[tuple[int
     return sorted(pts)
 
 
+def symmetry_orbit(r: int, c: int, geom: Geometry) -> list[tuple[int, int]]:
+    """The full symmetry orbit of (r, c): itself plus every symmetric
+    image, sorted. Length is 4 for a general quarter-core rotational
+    position; shorter only at a fixed point of the rotation (e.g. the
+    exact core centre on an odd-width grid).
+
+    This is the single source of truth for "which positions must move
+    together to keep a loading pattern symmetric" -- it calls the same
+    _images() that expand_to_full_core already uses for value maps, so
+    the two never disagree about what "symmetric" means.
+    """
+    images = _images(r, c, geom.iafull, geom.symmetry, geom.ihave)
+    return sorted({(r, c), *images})
+
+
 def quarter_origin(geom: Geometry) -> int:
     """First row/column index of the printed fractional map."""
     if geom.is_full_core:
