@@ -879,3 +879,104 @@ export function tooltipHtml(idx) {
     `<div class="tt-hint">Click for the full record</div>`
   );
 }
+
+/* ------------------------------------------------------- editable core map */
+
+let editHostEl = null;
+
+/** Registers the host the edit-mode map renders into. Called once from
+ *  loadingeditor.js's initLoadingEditor(), which also owns the pointer
+ *  listeners that make this map draggable (Task 4). */
+export function setEditMapHost(host) {
+  editHostEl = host;
+}
+
+/** Read-only edit-mode render: no computed values, ever (design constraint
+ *  -- this is a hypothetical, uncalculated layout). Colour marks fresh vs
+ *  reused; the label is the FUE.LAB token itself, which is the actual
+ *  loading-pattern identity SIMULATE-3 prints -- not a re-derived name. */
+export function renderEditableCoreMap() {
+  if (!editHostEl) return;
+  const p = state.payload;
+  if (!p || state.editSupported !== true) {
+    editHostEl.innerHTML = state.editReason
+      ? `<div class="empty-note">This run can't be edited: ${esc(state.editReason)}</div>`
+      : '';
+    return;
+  }
+
+  const entries = state.editModified || state.editOriginal || [];
+  const byRC = new Map(entries.map((e) => [`${e.row},${e.col}`, e]));
+
+  const n = gridSize(p);
+  const { cols, rows } = axisLabels(p);
+  const W = HEAD_W + n * CELL + PAD;
+  const H = HEAD_H + n * CELL + PAD;
+  const pxCell = cellPixels(editHostEl, W, H);
+  const showLabel = pxCell >= 15;
+
+  const parts = [];
+  parts.push(
+    `<svg class="coremap-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" ` +
+      `role="grid" aria-label="Editable core map, ${n} by ${n} lattice" ` +
+      `aria-rowcount="${n}" aria-colcount="${n}">`
+  );
+
+  parts.push('<g class="axis-head" aria-hidden="true">');
+  for (let c = 1; c <= n; c += 1) {
+    const x = HEAD_W + (c - 1) * CELL + CELL / 2;
+    parts.push(`<text class="head-text" x="${x}" y="${HEAD_H - 16}" text-anchor="middle">${esc(cols[c])}</text>`);
+  }
+  for (let r = 1; r <= n; r += 1) {
+    const y = HEAD_H + (r - 1) * CELL + CELL / 2 + 9;
+    parts.push(`<text class="head-text" x="${HEAD_W - 14}" y="${y}" text-anchor="end">${esc(rows[r])}</text>`);
+  }
+  parts.push('</g>');
+
+  for (let r = 1; r <= n; r += 1) {
+    parts.push(`<g role="row" aria-rowindex="${r}">`);
+    for (let c = 1; c <= n; c += 1) {
+      const x = HEAD_W + (c - 1) * CELL;
+      const y = HEAD_H + (r - 1) * CELL;
+      const e = byRC.get(`${r},${c}`);
+
+      if (!e) {
+        parts.push(
+          `<rect class="cell-void" x="${x + PAD}" y="${y + PAD}" width="${CELL - 2 * PAD}" ` +
+            `height="${CELL - 2 * PAD}" rx="5"/>`
+        );
+        continue;
+      }
+
+      const fresh = e.kind === 'fresh';
+      const fill = fresh ? categoricalColor(1) : categoricalColor(0);
+      const fg = textOn(fill);
+      const cls = ['cell', 'is-editable', fresh ? 'is-fresh' : 'is-reused'].join(' ');
+      const aria = `${e.token}, ${fresh ? 'fresh' : 'reused'}, row ${r} column ${c}`;
+
+      parts.push(
+        `<g class="${cls}" role="gridcell" aria-colindex="${c}" data-row="${r}" data-col="${c}" ` +
+          `tabindex="-1" aria-label="${esc(aria)}">`
+      );
+      parts.push(
+        `<rect class="cell-bg" x="${x + PAD}" y="${y + PAD}" width="${CELL - 2 * PAD}" ` +
+          `height="${CELL - 2 * PAD}" rx="5" fill="${fill}"/>`
+      );
+      if (showLabel) {
+        parts.push(
+          `<text class="cell-label is-solo" x="${x + CELL / 2}" y="${y + 60}" ` +
+            `text-anchor="middle" fill="${fg}">${esc(e.token)}</text>`
+        );
+      }
+      parts.push(
+        `<rect class="cell-ring" x="${x + PAD}" y="${y + PAD}" width="${CELL - 2 * PAD}" ` +
+          `height="${CELL - 2 * PAD}" rx="5"/>`
+      );
+      parts.push('</g>');
+    }
+    parts.push('</g>');
+  }
+
+  parts.push('</svg>');
+  editHostEl.innerHTML = parts.join('');
+}

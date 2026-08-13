@@ -35,7 +35,7 @@ import {
   exportCsv,
   fetchReportPdf,
 } from './api.js';
-import { initCoreMap, renderCoreMap, hideTooltip } from './coremap.js';
+import { initCoreMap, renderCoreMap, renderEditableCoreMap, setEditMapHost, hideTooltip } from './coremap.js';
 import { refreshEditorSupport } from './loadingeditor.js';
 import {
   initCharts,
@@ -57,6 +57,7 @@ import {
   renderNavTree,
   renderSectionViewer,
   renderSearchResults,
+  renderLoadingEditorPanel,
   buildLoadPanel,
   openSection,
   copyText,
@@ -892,6 +893,7 @@ function onChange(keys) {
 const onMap = () => state.view === 'map';
 const onPlots = () => state.view === 'plots';
 const onSections = () => state.view === 'sections';
+const onEdit = () => state.view === 'edit';
 
 function flush(keys) {
   const any = (...k) => k.some((x) => keys.has(x));
@@ -910,6 +912,10 @@ function flush(keys) {
   if (any('step', 'layer', 'selection', 'filters', 'flagged')) {
     if (onMap()) renderCoreMap();
     renderCoreMapTitle();
+  }
+  if (onEdit() && any('editSupport', 'editChange')) {
+    renderEditableCoreMap();
+    renderLoadingEditorPanel();
   }
   // Two headers carry the layer control; whichever was used, both must agree.
   if (any('layer')) syncLayerSelects();
@@ -952,6 +958,9 @@ function renderView(view) {
     renderNavTree();
     renderSectionViewer();
     renderSearchResults();
+  } else if (view === 'edit') {
+    renderEditableCoreMap();
+    renderLoadingEditorPanel();
   }
 }
 
@@ -970,6 +979,7 @@ async function boot() {
   dialogPanel = buildLoadPanel($('#load-dialog-host'), loadHandlers);
 
   initCoreMap($('#coremap'), $('#coremap-legend'), $('#tooltip'));
+  setEditMapHost($('#edit-coremap'));
   initCharts($('#chart-depletion'), $('#chart-axial'));
   wireControls();
   initResizable();

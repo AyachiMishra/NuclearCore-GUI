@@ -1192,6 +1192,21 @@ export function buildLoadPanel(host, handlers) {
   };
 }
 
+/* ------------------------------------------------------- loading editor */
+
+export function renderLoadingEditorPanel() {
+  const host = $('#edit-panel');
+  if (!host) return;
+  const p = state.payload;
+  if (!p || state.editSupported !== true) {
+    host.innerHTML = state.editReason
+      ? `<div class="empty-note">This run can't be edited: ${esc(state.editReason)}</div>`
+      : '';
+    return;
+  }
+  host.innerHTML = `<div class="empty-note">Drag an assembly on the map to begin. Every drag moves its full symmetry group together.</div>`;
+}
+
 /* --------------------------------------------------------------- clipboard */
 
 export async function copyText(text) {
