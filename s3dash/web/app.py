@@ -16,8 +16,12 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from ..parser import BuildResult, parse_text
+from ..parser.loadingpattern import LoadingPatternError, find_input_cards_section, parse_loading_pattern
+from ..parser.nextcycle import PositionChange, generate_inp, replay_changes, validate
+from ..parser.nextcycle import ValidationError as LoadingValidationError
 from .pdfreport import build_pdf as render_pdf
 from .report import render_report
 
@@ -47,6 +51,54 @@ def _get(run_id: str) -> BuildResult:
     if result is None:
         raise HTTPException(status_code=404, detail="Run not found; re-upload the file.")
     return result
+
+
+class PositionChangeIn(BaseModel):
+    fromRow: int
+    fromCol: int
+    toRow: int
+    toCol: int
+
+
+class ApplyChangesIn(BaseModel):
+    changes: list[PositionChangeIn]
+
+
+class GenerateInpIn(BaseModel):
+    changes: list[PositionChangeIn]
+    resFilename: str
+    resExposure: str
+    wreFilename: str | None = None
+
+
+def _decode_original_pattern(result: BuildResult):
+    """The run's original loading-pattern entries, or an HTTPException(422)
+    with a human-readable reason if this run isn't editable."""
+    payload = result.payload
+    fresh_labels = {b["label"] for b in payload["inputDeck"]["batches"]}
+    try:
+        entries = parse_loading_pattern(
+            result.document.lines,
+            result.geometry,
+            fresh_labels,
+            assembly_count=len(payload["assemblies"]),
+        )
+    except LoadingPatternError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if entries is None:
+        raise HTTPException(
+            status_code=422,
+            detail="This run has no FUE.LAB loading-pattern card to edit.",
+        )
+    return entries
+
+
+def _replay(original, changes: list[PositionChangeIn], geom):
+    position_changes = [PositionChange(c.fromRow, c.fromCol, c.toRow, c.toCol) for c in changes]
+    try:
+        return replay_changes(original, position_changes, geom)
+    except LoadingValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/parse")
@@ -212,6 +264,87 @@ async def export_pdf(run_id: str, step: int = Query(0, ge=0), download: bool = T
         media_type="application/pdf",
         headers={"Content-Disposition": f'{disposition}; filename="{name}.report.pdf"'},
     )
+
+
+@app.get("/api/run/{run_id}/loading-pattern")
+async def loading_pattern(run_id: str) -> dict:
+    """The run's original loading pattern, or why it can't be edited."""
+    result = _get(run_id)
+    payload = result.payload
+    fresh_labels = {b["label"] for b in payload["inputDeck"]["batches"]}
+    try:
+        entries = parse_loading_pattern(
+            result.document.lines,
+            result.geometry,
+            fresh_labels,
+            assembly_count=len(payload["assemblies"]),
+        )
+    except LoadingPatternError as exc:
+        return {"supported": False, "reason": str(exc)}
+    if entries is None:
+        return {
+            "supported": False,
+            "reason": (
+                "This run has no FUE.LAB loading-pattern card -- likely a "
+                "first-cycle run with no restart file to shuffle from."
+            ),
+        }
+    return {
+        "supported": True,
+        "entries": [e.to_json() for e in entries.values()],
+        "geometry": payload["geometry"],
+    }
+
+
+@app.post("/api/run/{run_id}/loading-pattern/apply")
+async def apply_loading_pattern(run_id: str, body: ApplyChangesIn) -> dict:
+    """Replay `body.changes` from the run's original pattern; report the
+    result and every validation problem, without generating anything."""
+    result = _get(run_id)
+    original = _decode_original_pattern(result)
+    modified, operations = _replay(original, body.changes, result.geometry)
+    problems = validate(modified, original, result.geometry)
+    return {
+        "entries": [e.to_json() for e in modified.values()],
+        "operations": [op.to_json() for op in operations],
+        "problems": problems,
+        "valid": not problems,
+    }
+
+
+@app.post("/api/run/{run_id}/loading-pattern/generate")
+async def generate_loading_pattern(run_id: str, body: GenerateInpIn) -> JSONResponse:
+    """Replay, validate, and generate the next-cycle .inp text. Refuses
+    to generate from an invalid pattern rather than silently emitting a
+    broken deck."""
+    result = _get(run_id)
+    original = _decode_original_pattern(result)
+    modified, operations = _replay(original, body.changes, result.geometry)
+    problems = validate(modified, original, result.geometry)
+    if problems:
+        raise HTTPException(status_code=422, detail="; ".join(problems))
+    try:
+        section = find_input_cards_section(result.document)
+    except LoadingPatternError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    gen = generate_inp(
+        lines=result.document.lines,
+        section_start=section.start,
+        section_end=section.end,
+        original_entries=original,
+        modified_entries=modified,
+        geom=result.geometry,
+        operations=operations,
+        res_filename=body.resFilename,
+        res_exposure=body.resExposure,
+        wre_filename=body.wreFilename,
+    )
+    name = Path(result.payload["meta"]["fileName"] or "run").stem
+    return JSONResponse({
+        "text": gen.text,
+        "flaggedCards": gen.flagged_cards,
+        "filename": f"{name}_cycle_next.inp",
+    })
 
 
 @app.get("/", response_class=HTMLResponse)

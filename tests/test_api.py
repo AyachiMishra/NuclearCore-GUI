@@ -190,6 +190,88 @@ class TestPdfEndpoint:
         assert client.get("/api/run/deadbeef/report.pdf").status_code == 404
 
 
+class TestLoadingPattern:
+    def test_supported_run_returns_full_entries(self, client, run_id):
+        resp = client.get(f"/api/run/{run_id}/loading-pattern")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["supported"] is True
+        assert len(body["entries"]) == len(client.post("/api/samples/case_002495.out").json()["assemblies"])
+
+    def test_unsupported_geometry_reports_a_reason_not_an_error(self, client):
+        beavrs_run = client.post("/api/samples/9074.out")
+        if beavrs_run.status_code != 200:
+            pytest.skip("BEAVRS sample not bundled in this checkout")
+        resp = client.get(f"/api/run/{beavrs_run.json()['runId']}/loading-pattern")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["supported"] is False
+        assert "reason" in body
+
+    def test_unknown_run_is_404(self, client):
+        assert client.get("/api/run/deadbeef/loading-pattern").status_code == 404
+
+    def test_apply_a_valid_swap(self, client, run_id):
+        original = client.get(f"/api/run/{run_id}/loading-pattern").json()
+        reused = [e for e in original["entries"] if e["kind"] == "reused"]
+        # The first two reused entries, unfiltered: only one position in
+        # this 17-wide core (the exact centre) is a rotational fixed
+        # point, so the odds of colliding with it here are negligible --
+        # and if it ever does, apply_change's own orbit-size check (unit-
+        # tested directly in test_nextcycle.py) fails loudly with a clear
+        # 422, not a silent wrong result.
+        a, b = reused[0], reused[1]
+        resp = client.post(
+            f"/api/run/{run_id}/loading-pattern/apply",
+            json={"changes": [
+                {"fromRow": a["row"], "fromCol": a["col"], "toRow": b["row"], "toCol": b["col"]}
+            ]},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["valid"] is True
+        assert body["problems"] == []
+        assert len(body["operations"]) == 1
+
+    def test_apply_an_invalid_move_is_422_with_a_specific_reason(self, client, run_id):
+        resp = client.post(
+            f"/api/run/{run_id}/loading-pattern/apply",
+            json={"changes": [{"fromRow": 1, "fromCol": 1, "toRow": 2, "toCol": 2}]},
+        )
+        assert resp.status_code == 422
+        assert "No assembly" in resp.json()["detail"]
+
+    def test_generate_returns_inp_text_reflecting_the_change(self, client, run_id):
+        original = client.get(f"/api/run/{run_id}/loading-pattern").json()
+        reused = [e for e in original["entries"] if e["kind"] == "reused"]
+        a, b = reused[0], reused[1]
+        change = {"fromRow": a["row"], "fromCol": a["col"], "toRow": b["row"], "toCol": b["col"]}
+        resp = client.post(
+            f"/api/run/{run_id}/loading-pattern/generate",
+            json={
+                "changes": [change],
+                "resFilename": "placeholder.res",
+                "resExposure": "0.0",
+                "wreFilename": None,
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "'RES' 'placeholder.res' 0.0/" in body["text"]
+        assert b["token"] in body["text"]
+        assert isinstance(body["flaggedCards"], list)
+
+    def test_generate_with_a_dirty_pattern_is_422(self, client, run_id):
+        resp = client.post(
+            f"/api/run/{run_id}/loading-pattern/generate",
+            json={
+                "changes": [{"fromRow": 1, "fromCol": 1, "toRow": 2, "toCol": 2}],
+                "resFilename": "x", "resExposure": "0.0", "wreFilename": None,
+            },
+        )
+        assert resp.status_code == 422
+
+
 class TestStaticSurface:
     def test_index_is_served(self, client):
         resp = client.get("/")
