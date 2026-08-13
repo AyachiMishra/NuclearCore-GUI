@@ -25,7 +25,7 @@ STATIC = Path(__file__).parent / "web" / "static"
 
 # Emission order must respect the import graph: a module may only depend on
 # ones already registered. api.js is replaced by the offline shim below.
-MODULE_ORDER = ["state.js", "coremap.js", "views.js", "charts.js", "panels.js", "app.js"]
+MODULE_ORDER = ["state.js", "coremap.js", "views.js", "charts.js", "panels.js", "loadingeditor.js", "app.js"]
 
 # Each module keeps its own scope. Flattening them into one shared scope looks
 # simpler but breaks the moment two modules declare the same private helper --
