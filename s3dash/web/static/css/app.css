@@ -264,6 +264,12 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
   .view-nav { order: 3; flex: 0 0 100%; }
 }
 
+.status-group {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-1); border-radius: 20px;
+  background: var(--panel-2); border: 1px solid var(--border);
+}
+
 .completion-chip {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 4px 9px; border-radius: 20px;
@@ -316,6 +322,13 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
 }
 .btn:hover { background: var(--panel-3); border-color: var(--border-strong); }
 .btn:active { transform: translateY(1px); }
+.btn-primary {
+  background: var(--accent); color: var(--accent-text); border-color: var(--accent);
+}
+.btn-primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, black);
+  border-color: color-mix(in srgb, var(--accent) 88%, black);
+}
 .btn-icon { padding: 6px 9px; font-size: 13px; }
 .btn-mini { padding: 3px 8px; font-size: 11px; }
 .btn-step { padding: 6px 8px; font-size: 10px; }

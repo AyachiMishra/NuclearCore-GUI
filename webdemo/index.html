@@ -41,8 +41,10 @@
   </nav>
 
   <div class="header-actions">
-    <span id="completion-chip" class="completion-chip" hidden></span>
-    <div id="status-badge" class="status-badge" role="group" aria-label="Run diagnostics summary" hidden></div>
+    <div class="status-group">
+      <span id="completion-chip" class="completion-chip" hidden></span>
+      <div id="status-badge" class="status-badge" role="group" aria-label="Run diagnostics summary" hidden></div>
+    </div>
 
     <details class="menu menu-export" id="export-menu" hidden>
       <summary class="btn" role="button" aria-haspopup="menu" aria-label="Export this run">Export <span class="menu-caret" aria-hidden="true">▾</span></summary>
@@ -70,7 +72,7 @@
       </div>
     </details>
 
-    <button type="button" id="btn-load" class="btn">Load listing</button>
+    <button type="button" id="btn-load" class="btn btn-primary">Load listing</button>
     <button type="button" id="btn-theme" class="btn btn-icon" aria-label="Toggle colour theme" title="Toggle colour theme (light / dark / auto)">
       <span id="theme-glyph" aria-hidden="true">◐</span>
     </button>
