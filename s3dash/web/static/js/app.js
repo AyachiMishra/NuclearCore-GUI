@@ -121,7 +121,13 @@ async function load(promise, label) {
     const payload = await promise;
     const runId = payload.runId;
     installPayload(payload, runId);
-    refreshEditorSupport(runId);
+    // Awaited, not fire-and-forget: on the Pyodide surface the loading-
+    // pattern check is a synchronous, main-thread-blocking WASM call, which
+    // can swallow the render that its own update() call schedules if that
+    // update lands while an earlier rAF frame from installPayload is still
+    // in flight. Awaiting collapses both updates into one settled state
+    // before anything downstream (setBusy, the toast) runs.
+    await refreshEditorSupport(runId);
     setBusy(false);
     const dlg = $('#load-dialog');
     if (dlg.open) dlg.close();
@@ -906,6 +912,12 @@ function flush(keys) {
     applyView(state.view);
     renderView(state.view);
     renderTabs();
+    // This branch returns early, skipping every check below -- including
+    // the syncEditTab() call further down. editSupport's own update()
+    // almost always lands in this same batch (refreshEditorSupport is
+    // awaited right after installPayload in load()), so without this call
+    // here the tab's visibility would silently never update on this pass.
+    syncEditTab();
     return;
   }
 
