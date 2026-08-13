@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-SHARED_JS = ["state.js", "coremap.js", "panels.js", "charts.js", "views.js", "app.js"]
+SHARED_JS = ["state.js", "coremap.js", "panels.js", "charts.js", "views.js", "app.js", "loadingeditor.js"]
 
 
 def build(outdir: Path) -> None:
