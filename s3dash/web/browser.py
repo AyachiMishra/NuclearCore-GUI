@@ -19,7 +19,7 @@ from pathlib import Path
 
 from ..parser import BuildResult, parse_text
 from ..parser.loadingpattern import LoadingPatternError, find_input_cards_section, parse_loading_pattern
-from ..parser.nextcycle import PositionChange, generate_inp, replay_changes, validate
+from ..parser.nextcycle import PositionChange, generate_inp, replay_changes, suggest_generation_inputs, validate
 from ..parser.nextcycle import ValidationError as LoadingValidationError
 from .pdfreport import build_pdf
 
@@ -189,6 +189,9 @@ def loading_pattern(run_id: str) -> str:
         "supported": True,
         "entries": [e.to_json() for e in entries.values()],
         "geometry": result.payload["geometry"],
+        "suggested": suggest_generation_inputs(
+            result.payload["inputDeck"]["cards"], result.payload["meta"].get("cycleEnd")
+        ),
     })
 
 

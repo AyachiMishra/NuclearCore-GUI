@@ -110,6 +110,13 @@ class TestLoadingPattern:
         assert result["ok"] is True
         assert result["supported"] is True
         assert len(result["entries"]) > 0
+        # case_002495.out has a RES card but no WRE card (confirmed against the
+        # real file), so the WRE-derived suggestions are None -- only the
+        # exposure, which comes from meta.cycleEnd, is populated.
+        suggested = result["suggested"]
+        assert suggested["resFilename"] is None
+        assert suggested["wreFilename"] is None
+        assert suggested["resExposure"] is not None
 
     def test_unknown_run_is_reported_not_raised(self):
         result = json.loads(browser.loading_pattern("deadbeef"))

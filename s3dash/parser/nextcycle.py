@@ -321,6 +321,29 @@ def infer_next_restart_filename(current_filename: str) -> str | None:
     return current_filename[:start] + incremented + current_filename[end:]
 
 
+_QUOTED_RE = re.compile(r"'([^']*)'")
+
+
+def suggest_generation_inputs(cards: list[dict], cycle_end: float | None) -> dict:
+    """Best-effort starting values for the next cycle's RES/WRE fields, from
+    this run's own WRE card (what it wrote) and its own final exposure --
+    the same source data tests/test_nextcycle_acceptance.py already reads by
+    hand. Any field the source data doesn't support comes back None rather
+    than guessed; the caller shows it as an empty, editable field.
+    """
+    wre_card = next((c for c in cards if c.get("card") == "WRE"), None)
+    current_wre = None
+    if wre_card:
+        m = _QUOTED_RE.search(wre_card.get("args", ""))
+        if m:
+            current_wre = m.group(1)
+    return {
+        "resFilename": current_wre,
+        "resExposure": None if cycle_end is None else str(cycle_end),
+        "wreFilename": infer_next_restart_filename(current_wre) if current_wre else None,
+    }
+
+
 def replay_changes(
     original_entries: dict[tuple[int, int], LoadingEntry],
     changes: list[PositionChange],

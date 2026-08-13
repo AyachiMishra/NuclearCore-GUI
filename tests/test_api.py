@@ -197,6 +197,13 @@ class TestLoadingPattern:
         body = resp.json()
         assert body["supported"] is True
         assert len(body["entries"]) == len(client.post("/api/samples/case_002495.out").json()["assemblies"])
+        # case_002495.out has a RES card but no WRE card (confirmed against the
+        # real file), so the WRE-derived suggestions are None -- only the
+        # exposure, which comes from meta.cycleEnd, is populated.
+        suggested = body["suggested"]
+        assert suggested["resFilename"] is None
+        assert suggested["wreFilename"] is None
+        assert suggested["resExposure"] is not None
 
     def test_unsupported_geometry_reports_a_reason_not_an_error(self, client):
         beavrs_run = client.post("/api/samples/9074.out")

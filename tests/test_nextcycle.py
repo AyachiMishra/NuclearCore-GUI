@@ -327,6 +327,34 @@ class TestReplayChanges:
         assert entries == snapshot
 
 
+class TestSuggestGenerationInputs:
+    def test_reads_the_source_deck_s_own_wre_card(self):
+        from s3dash.parser.nextcycle import suggest_generation_inputs
+
+        cards = [
+            {"card": "TIT.CAS", "args": "'some title' /"},
+            {"card": "WRE", "args": "'s3.plant.c02.depl.res' /"},
+        ]
+        result = suggest_generation_inputs(cards, cycle_end=20000.0)
+        assert result == {
+            "resFilename": "s3.plant.c02.depl.res",
+            "resExposure": "20000.0",
+            "wreFilename": "s3.plant.c03.depl.res",
+        }
+
+    def test_no_wre_card_returns_none_for_every_inferred_field(self):
+        from s3dash.parser.nextcycle import suggest_generation_inputs
+
+        result = suggest_generation_inputs([{"card": "TIT.CAS", "args": "'x' /"}], cycle_end=100.0)
+        assert result == {"resFilename": None, "resExposure": "100.0", "wreFilename": None}
+
+    def test_missing_cycle_end_returns_none_for_exposure(self):
+        from s3dash.parser.nextcycle import suggest_generation_inputs
+
+        result = suggest_generation_inputs([], cycle_end=None)
+        assert result["resExposure"] is None
+
+
 class TestInferNextRestartFilename:
     def test_increments_the_cycle_number_the_source_deck_demonstrates(self):
         from s3dash.parser.nextcycle import infer_next_restart_filename

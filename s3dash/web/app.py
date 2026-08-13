@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from ..parser import BuildResult, parse_text
 from ..parser.loadingpattern import LoadingPatternError, find_input_cards_section, parse_loading_pattern
-from ..parser.nextcycle import PositionChange, generate_inp, replay_changes, validate
+from ..parser.nextcycle import PositionChange, generate_inp, replay_changes, suggest_generation_inputs, validate
 from ..parser.nextcycle import ValidationError as LoadingValidationError
 from .pdfreport import build_pdf as render_pdf
 from .report import render_report
@@ -293,6 +293,9 @@ async def loading_pattern(run_id: str) -> dict:
         "supported": True,
         "entries": [e.to_json() for e in entries.values()],
         "geometry": payload["geometry"],
+        "suggested": suggest_generation_inputs(
+            payload["inputDeck"]["cards"], payload["meta"].get("cycleEnd")
+        ),
     }
 
 
