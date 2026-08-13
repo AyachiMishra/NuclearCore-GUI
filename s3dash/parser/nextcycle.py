@@ -173,3 +173,27 @@ def validate(
             )
 
     return problems
+
+
+def encode_loading_pattern(entries: dict[tuple[int, int], LoadingEntry], geom: Geometry) -> str:
+    """Render `entries` back into FUE.LAB grid text -- regenerates every
+    row from the (row, col) -> token mapping rather than surgically
+    patching the original text, so encoding is provably the inverse of
+    loadingpattern.decode_loading_pattern rather than drifting from it
+    over incremental edits. Ends with the "0  0" terminator both verified
+    decks use."""
+    by_row: dict[int, dict[int, str]] = {}
+    for (r, c), e in entries.items():
+        by_row.setdefault(r, {})[c] = e.token
+
+    lines: list[str] = []
+    for r in sorted(by_row):
+        cols = by_row[r]
+        max_col = max(cols)
+        cells = [" " * _FIELD_WIDTH] * max_col
+        for c, token in cols.items():
+            cells[c - 1] = token.ljust(_FIELD_WIDTH)
+        row_text = "".join(cells).rstrip()
+        lines.append(f"{r:3d}  1 {row_text}")
+    lines.append("  0  0")
+    return "\n".join(lines)

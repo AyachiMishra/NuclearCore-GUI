@@ -8,6 +8,7 @@ import pytest
 from s3dash.parser.geometry import Geometry
 from s3dash.parser.loadingpattern import LoadingEntry
 from s3dash.parser.nextcycle import PositionChange, ValidationError, apply_change
+from tests.conftest import SAMPLES, samples_available
 
 
 def _quarter_rotational(iafull: int) -> Geometry:
@@ -141,3 +142,45 @@ class TestValidate:
         broken[(r, c)] = LoadingEntry(row=r, col=c, token=broken[(r, c)].token, kind="fresh")
         problems = validate(broken, entries, geom)
         assert any("fresh-batch" in p for p in problems)
+
+
+from s3dash.parser.loadingpattern import decode_loading_pattern, find_fuel_lab_card
+from s3dash.parser.nextcycle import encode_loading_pattern
+
+
+class TestEncodeLoadingPattern:
+    def test_round_trips_a_hand_built_pattern(self):
+        geom = _quarter_rotational(17)
+        from s3dash.parser.geometry import symmetry_orbit
+
+        orbit = symmetry_orbit(2, 5, geom)
+        entries = {(r, c): _entry(r, c, "N-03" if i == 0 else "TP01", "reused" if i == 0 else "fresh")
+                   for i, (r, c) in enumerate(orbit)}
+
+        text = encode_loading_pattern(entries, geom)
+        lines = ["'FUE.LAB' 4/", *text.splitlines()]
+        decoded = decode_loading_pattern(lines, 0, {"TP01"})
+        assert decoded.keys() == entries.keys()
+        for pos in entries:
+            assert decoded[pos].token == entries[pos].token
+            assert decoded[pos].kind == entries[pos].kind
+
+    def test_round_trips_the_real_apr1400_pattern(self):
+        if not samples_available():
+            pytest.skip("reference listing not present (see README)")
+        from s3dash.parser import parse_file
+
+        result = parse_file(SAMPLES / "apr1400.c02.out")
+        payload = result.payload
+        lines = result.document.lines
+        fresh_labels = {b["label"] for b in payload["inputDeck"]["batches"]}
+        fuel_lab_line = find_fuel_lab_card(lines)
+        original = decode_loading_pattern(lines, fuel_lab_line, fresh_labels)
+
+        text = encode_loading_pattern(original, result.geometry)
+        reencoded_lines = ["'FUE.LAB' 4/", *text.splitlines()]
+        roundtripped = decode_loading_pattern(reencoded_lines, 0, fresh_labels)
+
+        assert roundtripped.keys() == original.keys()
+        for pos in original:
+            assert roundtripped[pos].token == original[pos].token
