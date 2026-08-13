@@ -663,12 +663,13 @@ def apply_change(
         elif (fr, fc) in out:
             del out[(fr, fc)]
 
+    same_position = (change.from_row, change.from_col) == (change.to_row, change.to_col)
     op = AppliedOperation(
-        operation="swap" if to_entry is not None else "move",
+        operation="swap" if (to_entry is not None and not same_position) else "move",
         from_site=geom.site_label(change.from_row, change.from_col),
         to_site=geom.site_label(change.to_row, change.to_col),
         from_token=from_entry.token,
-        to_token=to_entry.token if to_entry is not None else None,
+        to_token=to_entry.token if (to_entry is not None and not same_position) else None,
     )
     return out, op
 ```
