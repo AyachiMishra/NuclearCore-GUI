@@ -708,6 +708,8 @@ body[data-view="sections"] .tree-scroll { max-height: 38vh; }
 .cell-hatch { pointer-events: none; opacity: .42; }
 .cell.is-editable { cursor: grab; touch-action: none; }
 .cell.is-editable:active { cursor: grabbing; }
+.cell.is-drag-source { opacity: 0.55; }
+.cell.is-drop-target .cell-bg { stroke: var(--accent); stroke-width: 3px; }
 .cell-calc {
   fill: none; stroke: currentColor; stroke-width: 3; opacity: .68;
   stroke-dasharray: 9 7; pointer-events: none;

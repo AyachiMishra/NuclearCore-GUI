@@ -10,7 +10,7 @@
  */
 
 import { state, update } from './state.js';
-import { fetchLoadingPattern } from './api.js';
+import { fetchLoadingPattern, applyLoadingPattern } from './api.js';
 
 /** Called once per successful run load (from app.js's load()). Populates
  *  editSupported/editReason/editOriginal/editTokenAssembly and pre-fills
@@ -74,4 +74,108 @@ function buildTokenAssemblyMap(entries, payload) {
     if (i !== undefined && asms[i]) map.set(e.token, asms[i]);
   }
   return map;
+}
+
+/* -------------------------------------------------------------- dragging */
+
+let dragHost = null;
+let dragState = null; // {fromRow, fromCol, sourceEl} while a drag is live
+let lastTargetEl = null;
+
+function cellRC(el) {
+  if (!el || !el.closest) return null;
+  const cell = el.closest('.cell.is-editable');
+  if (!cell) return null;
+  const row = Number(cell.dataset.row);
+  const col = Number(cell.dataset.col);
+  return Number.isFinite(row) && Number.isFinite(col) ? { row, col, el: cell } : null;
+}
+
+function onPointerDown(evt) {
+  if (state.view !== 'edit' || state.editBusy) return;
+  const hit = cellRC(evt.target);
+  if (!hit) return;
+  evt.preventDefault();
+  dragState = { fromRow: hit.row, fromCol: hit.col, sourceEl: hit.el };
+  hit.el.classList.add('is-drag-source');
+  document.addEventListener('pointermove', onPointerMove);
+  document.addEventListener('pointerup', onPointerUp);
+}
+
+function onPointerMove(evt) {
+  if (!dragState) return;
+  const el = document.elementFromPoint(evt.clientX, evt.clientY);
+  const hit = cellRC(el);
+  const targetEl = hit ? hit.el : null;
+  if (targetEl === lastTargetEl) return;
+  if (lastTargetEl) lastTargetEl.classList.remove('is-drop-target');
+  lastTargetEl = targetEl;
+  if (targetEl && targetEl !== dragState.sourceEl) targetEl.classList.add('is-drop-target');
+}
+
+function endDrag() {
+  document.removeEventListener('pointermove', onPointerMove);
+  document.removeEventListener('pointerup', onPointerUp);
+  if (dragState) dragState.sourceEl.classList.remove('is-drag-source');
+  if (lastTargetEl) lastTargetEl.classList.remove('is-drop-target');
+  lastTargetEl = null;
+  dragState = null;
+}
+
+function onPointerUp(evt) {
+  if (!dragState) { endDrag(); return; }
+  const { fromRow, fromCol } = dragState;
+  const el = document.elementFromPoint(evt.clientX, evt.clientY);
+  const hit = cellRC(el);
+  endDrag();
+  if (!hit) return; // dropped outside any cell -- no-op, not an error
+  if (hit.row === fromRow && hit.col === fromCol) return; // dropped on itself
+  applyDrag(fromRow, fromCol, hit.row, hit.col);
+}
+
+/** Registers the pointerdown listener on the map host. Safe to call once;
+ *  pointermove/pointerup are attached only while a drag is actually in
+ *  progress, so there is no always-on document listener cost. */
+export function initLoadingEditor(host) {
+  dragHost = host;
+  dragHost.addEventListener('pointerdown', onPointerDown);
+}
+
+/* -------------------------------------------------------------- mutating */
+
+/** Push one drag as a new change, replaying from the original through the
+ *  active history prefix. A new drag while editHistoryIndex is short of
+ *  editChanges.length discards the redo tail -- standard undo/redo-with-
+ *  new-action semantics. */
+export async function applyDrag(fromRow, fromCol, toRow, toCol) {
+  const change = { fromRow, fromCol, toRow, toCol };
+  const changes = state.editChanges.slice(0, state.editHistoryIndex);
+  changes.push(change);
+  await replay(changes, changes.length);
+}
+
+/** POSTs `changes` (the active prefix) and stores the result. On failure,
+ *  editChanges/editHistoryIndex are NOT advanced -- a rejected attempt
+ *  leaves state exactly as it was before it. */
+async function replay(changes, historyIndex) {
+  update({ editBusy: true, editError: null }, 'editChange');
+  try {
+    const body = await applyLoadingPattern(state.runId, changes);
+    update(
+      {
+        editChanges: changes,
+        editHistoryIndex: historyIndex,
+        editModified: body.entries,
+        editOperations: body.operations,
+        editProblems: body.problems,
+        editValid: body.valid,
+        editBusy: false,
+        editError: null,
+        editGenerated: null, // a changed pattern invalidates any previous preview
+      },
+      'editChange'
+    );
+  } catch (err) {
+    update({ editBusy: false, editError: err.message || String(err) }, 'editChange');
+  }
 }

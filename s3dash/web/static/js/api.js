@@ -74,6 +74,18 @@ export async function fetchLoadingPattern(runId) {
   return res.json();
 }
 
+/** POST /api/run/{id}/loading-pattern/apply -> {entries, operations, problems, valid} */
+export async function applyLoadingPattern(runId, changes) {
+  const res = await check(
+    await fetch(`/api/run/${encodeURIComponent(runId)}/loading-pattern/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ changes }),
+    })
+  );
+  return res.json();
+}
+
 /** GET /api/run/{id}/export.json -> {blob, filename} */
 export async function exportJson(runId) {
   const res = await check(await fetch(`/api/run/${encodeURIComponent(runId)}/export.json`));

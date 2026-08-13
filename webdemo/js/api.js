@@ -59,6 +59,12 @@ export async function fetchLoadingPattern(runId) {
   return body;
 }
 
+export async function applyLoadingPattern(runId, changes) {
+  const r = await call('apply_loading_pattern', runId, JSON.stringify(changes));
+  const { ok, ...body } = r;
+  return body;
+}
+
 export async function exportJson(runId) {
   const r = await call('export_json', runId);
   const text = JSON.stringify(r.payload, null, 2);

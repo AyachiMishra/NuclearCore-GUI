@@ -36,7 +36,7 @@ import {
   fetchReportPdf,
 } from './api.js';
 import { initCoreMap, renderCoreMap, renderEditableCoreMap, setEditMapHost, hideTooltip } from './coremap.js';
-import { refreshEditorSupport } from './loadingeditor.js';
+import { refreshEditorSupport, initLoadingEditor } from './loadingeditor.js';
 import {
   initCharts,
   renderDepletionChart,
@@ -980,6 +980,7 @@ async function boot() {
 
   initCoreMap($('#coremap'), $('#coremap-legend'), $('#tooltip'));
   setEditMapHost($('#edit-coremap'));
+  initLoadingEditor($('#edit-coremap'));
   initCharts($('#chart-depletion'), $('#chart-axial'));
   wireControls();
   initResizable();
