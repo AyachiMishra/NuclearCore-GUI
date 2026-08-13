@@ -197,3 +197,125 @@ def encode_loading_pattern(entries: dict[tuple[int, int], LoadingEntry], geom: G
         lines.append(f"{r:3d}  1 {row_text}")
     lines.append("  0  0")
     return "\n".join(lines)
+
+
+_DEP_CARD_NAMES = ("'DEP.CYC'", "'DEP.STA'")
+_FLAG_VERBATIM_CARDS = ("'TIT.CAS'", "'BAT.LAB'")
+
+_RES_RE = re.compile(r"^(\s*'RES'\s*)'[^']*'\s*[\d.]+\.?\s*/(.*)$")
+_WRE_RE = re.compile(r"^(\s*'WRE'\s*)'[^']*'\s*/(.*)$")
+
+
+@dataclass
+class GenerationResult:
+    text: str
+    flagged_cards: list[str]
+    operations: list[AppliedOperation]
+
+
+def generate_inp(
+    lines: list[str],
+    section_start: int,
+    section_end: int,
+    original_entries: dict[tuple[int, int], LoadingEntry],
+    modified_entries: dict[tuple[int, int], LoadingEntry],
+    geom: Geometry,
+    operations: list[AppliedOperation],
+    res_filename: str,
+    res_exposure: str,
+    wre_filename: str | None,
+) -> GenerationResult:
+    """Build the next-cycle .inp text from the source deck's own echoed
+    "Listing of Input Cards" -- the [section_start, section_end) slice of
+    `lines`. Only the FUE.LAB grid, the RES card, and (if `wre_filename`
+    is given) the WRE card are rewritten; everything else survives
+    character-for-character. DEP.CYC/DEP.STA get an advisory comment
+    inserted immediately before the first one found; TIT.CAS/BAT.LAB are
+    left untouched but named in `flagged_cards` for the caller's audit
+    summary.
+    """
+    block = list(lines[section_start:section_end])
+
+    fuel_lab_line = None
+    for i, line in enumerate(block):
+        if "'FUE.LAB'" in line:
+            fuel_lab_line = i
+            break
+
+    out: list[str] = []
+    flagged: list[str] = []
+    dep_comment_inserted = False
+    i = 0
+    while i < len(block):
+        line = block[i]
+
+        if fuel_lab_line is not None and i == fuel_lab_line:
+            out.append(line)
+            i += 1
+            while i < len(block):
+                toks = block[i].split()
+                if not toks or toks[0] == "0":
+                    i += 1
+                    break
+                i += 1
+            out.append(encode_loading_pattern(modified_entries, geom))
+            continue
+
+        m = _RES_RE.match(line)
+        if m:
+            out.append(f"{m.group(1)}'{res_filename}' {res_exposure}/{m.group(2)}")
+            i += 1
+            continue
+
+        m = _WRE_RE.match(line)
+        if m and wre_filename:
+            out.append(f"{m.group(1)}'{wre_filename}' /{m.group(2)}")
+            i += 1
+            continue
+
+        if not dep_comment_inserted and any(name in line for name in _DEP_CARD_NAMES):
+            out.append(
+                "'COM' *** REVIEW: depletion schedule copied from the source "
+                "cycle -- update the exposure/step points for this cycle "
+                "before running ***"
+            )
+            dep_comment_inserted = True
+
+        for card in _FLAG_VERBATIM_CARDS:
+            if card in line:
+                name = card.strip("'")
+                if name not in flagged:
+                    flagged.append(name)
+
+        out.append(line)
+        i += 1
+
+    return GenerationResult(text="\n".join(out), flagged_cards=flagged, operations=operations)
+
+
+_CYCLE_NUM_RE = re.compile(r"(?:^|[._])[Cc](\d+)(?=[._]|$)")
+
+
+def infer_next_restart_filename(current_filename: str) -> str | None:
+    """Best-effort next-cycle filename, incrementing the trailing
+    cycle-number token a filename like "...c02.depl.res" demonstrates.
+    The "c<digits>" must be bounded by "." or "_" or the ends of the
+    string, so a coincidental digit run elsewhere in the name (e.g. a
+    plant name like "apr1400") is never mistaken for it.
+
+    This rests on a single within-deck example -- one source deck's own
+    RES-reads / WRE-writes pair, which is the only real evidence
+    available (see the design spec). Deliberately conservative: returns
+    None rather than guessing when no such bounded pattern is found, so
+    the caller exposes the field for the user to fill in instead, per
+    the design's explicit instruction not to invent restart-naming
+    syntax silently.
+    """
+    matches = list(_CYCLE_NUM_RE.finditer(current_filename))
+    if not matches:
+        return None
+    m = matches[-1]
+    digits = m.group(1)
+    incremented = str(int(digits) + 1).zfill(len(digits))
+    start, end = m.span(1)
+    return current_filename[:start] + incremented + current_filename[end:]

@@ -184,3 +184,128 @@ class TestEncodeLoadingPattern:
         assert roundtripped.keys() == original.keys()
         for pos in original:
             assert roundtripped[pos].token == original[pos].token
+
+
+from s3dash.parser.nextcycle import GenerationResult, generate_inp
+
+
+class TestGenerateInp:
+    def test_fue_lab_block_is_replaced_and_res_wre_substituted(self):
+        geom = _quarter_rotational(4)
+        source_lines = [
+            "'TIT.CAS' 'ORIGINAL TITLE' /",
+            "'RES' 's3.plant.c01.depl.res' 20000./",
+            "'FUE.LAB' 4/",
+            "  1  1 N-03 TP01",
+            "  0  0",
+            "'FUE.NEW', 'TP01', 'F-101', 2, 8, ,,3/",
+            "'WRE' 's3.plant.c02.depl.res' /",
+            "'STA'/",
+        ]
+        entries = {
+            (1, 1): _entry(1, 1, "N-03"),
+            (1, 2): _entry(1, 2, "TP01", "fresh"),
+        }
+        result = generate_inp(
+            lines=source_lines,
+            section_start=0,
+            section_end=len(source_lines),
+            original_entries=entries,
+            modified_entries=entries,
+            geom=geom,
+            operations=[],
+            res_filename="s3.plant.c02.depl.res",
+            res_exposure="24.112",
+            wre_filename="s3.plant.c03.depl.res",
+        )
+        assert isinstance(result, GenerationResult)
+        assert "'RES' 's3.plant.c02.depl.res' 24.112/" in result.text
+        assert "'WRE' 's3.plant.c03.depl.res' /" in result.text
+        assert "s3.plant.c01.depl.res" not in result.text
+        assert "N-03" in result.text and "TP01" in result.text
+        # unrelated cards survive verbatim
+        assert "'FUE.NEW', 'TP01', 'F-101', 2, 8, ,,3/" in result.text
+        assert "'STA'/" in result.text
+
+    def test_tit_cas_and_bat_lab_preserved_but_flagged(self):
+        geom = _quarter_rotational(4)
+        source_lines = [
+            "'TIT.CAS' 'PWR CYCLE 2' /",
+            "'BAT.LAB' 2 'CYC-2' /",
+            "'RES' 's3.plant.c01.depl.res' 20000./",
+            "'FUE.LAB' 4/",
+            "  1  1 N-03",
+            "  0  0",
+            "'WRE' 's3.plant.c02.depl.res' /",
+        ]
+        entries = {(1, 1): _entry(1, 1, "N-03")}
+        result = generate_inp(
+            lines=source_lines, section_start=0, section_end=len(source_lines),
+            original_entries=entries, modified_entries=entries, geom=geom, operations=[],
+            res_filename="x", res_exposure="1.0", wre_filename=None,
+        )
+        assert "'TIT.CAS' 'PWR CYCLE 2' /" in result.text
+        assert "'BAT.LAB' 2 'CYC-2' /" in result.text
+        assert "TIT.CAS" in result.flagged_cards
+        assert "BAT.LAB" in result.flagged_cards
+
+    def test_dep_cyc_gets_advisory_comment(self):
+        geom = _quarter_rotational(4)
+        source_lines = [
+            "'RES' 's3.plant.c01.depl.res' 20000./",
+            "'FUE.LAB' 4/",
+            "  1  1 N-03",
+            "  0  0",
+            "'DEP.CYC' 'CYCLE 2 ' .0 2 /",
+        ]
+        entries = {(1, 1): _entry(1, 1, "N-03")}
+        result = generate_inp(
+            lines=source_lines, section_start=0, section_end=len(source_lines),
+            original_entries=entries, modified_entries=entries, geom=geom, operations=[],
+            res_filename="x", res_exposure="1.0", wre_filename=None,
+        )
+        lines_out = result.text.splitlines()
+        dep_idx = next(i for i, l in enumerate(lines_out) if "DEP.CYC" in l)
+        assert "'COM'" in lines_out[dep_idx - 1]
+        assert "review" in lines_out[dep_idx - 1].lower()
+
+    def test_no_wre_filename_means_wre_card_untouched(self):
+        geom = _quarter_rotational(4)
+        source_lines = [
+            "'RES' 's3.plant.c01.depl.res' 20000./",
+            "'FUE.LAB' 4/",
+            "  1  1 N-03",
+            "  0  0",
+            "'WRE' 's3.plant.c02.depl.res' /",
+        ]
+        entries = {(1, 1): _entry(1, 1, "N-03")}
+        result = generate_inp(
+            lines=source_lines, section_start=0, section_end=len(source_lines),
+            original_entries=entries, modified_entries=entries, geom=geom, operations=[],
+            res_filename="x", res_exposure="1.0", wre_filename=None,
+        )
+        assert "'WRE' 's3.plant.c02.depl.res' /" in result.text
+
+
+class TestInferNextRestartFilename:
+    def test_increments_the_cycle_number_the_source_deck_demonstrates(self):
+        from s3dash.parser.nextcycle import infer_next_restart_filename
+
+        # apr1400.c02.out's own RES reads .c01., its own WRE writes .c02. --
+        # a within-deck, read-then-write pair that unambiguously increments.
+        # The parallel move for a generated next-cycle deck is .c02. -> .c03.
+        assert infer_next_restart_filename("s3.apr1400_PPF.uo2.c02.depl.res") == \
+            "s3.apr1400_PPF.uo2.c03.depl.res"
+
+    def test_double_digit_cycle_number(self):
+        from s3dash.parser.nextcycle import infer_next_restart_filename
+
+        assert infer_next_restart_filename("s3.plant.c09.depl.res") == "s3.plant.c10.depl.res"
+
+    def test_no_recognisable_cycle_pattern_returns_none(self):
+        # Must not guess when the filename doesn't demonstrate a pattern --
+        # the caller falls back to asking the user, per the design's
+        # explicit "expose as an editable field" instruction.
+        from s3dash.parser.nextcycle import infer_next_restart_filename
+
+        assert infer_next_restart_filename("restart_file.res") is None
