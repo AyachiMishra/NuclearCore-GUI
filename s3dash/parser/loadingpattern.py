@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .document import Document, Section
 from .geometry import Geometry
 
 _FIELD_WIDTH = 5
@@ -142,3 +143,21 @@ def parse_loading_pattern(
     entries = decode_loading_pattern(lines, fuel_lab_line, fresh_labels)
     check_entry_count(entries, assembly_count)
     return entries
+
+
+def find_input_cards_section(doc: Document) -> Section:
+    """The "Input Cards" section actually holding a FUE.LAB card.
+
+    Some builds echo the "Listing of Input Cards" heading twice, leaving
+    an empty stub section ahead of the real one -- the same issue
+    build.py's own _first() exists to guard against for other sections.
+    Document.find(...)[0] is therefore not safe to use directly here.
+
+    Raises LoadingPatternError if no such section exists.
+    """
+    for sec in doc.find("input", "Input Cards"):
+        if find_fuel_lab_card(doc.lines[sec.start:sec.end]) is not None:
+            return sec
+    raise LoadingPatternError(
+        "No 'Input Cards' section containing a FUE.LAB card was found in this listing."
+    )

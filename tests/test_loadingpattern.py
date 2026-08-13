@@ -126,3 +126,22 @@ def test_entry_count_mismatch_raises():
     ]
     with pytest.raises(LoadingPatternError, match="assemblies"):
         parse_loading_pattern(lines, geom, {"TP01"}, assembly_count=99)
+
+
+from s3dash.parser.loadingpattern import find_input_cards_section
+
+
+class TestFindInputCardsSection:
+    @needs_listings
+    def test_finds_the_section_actually_holding_fuel_lab(self):
+        result = parse_file(SAMPLES / "case_002495.out")
+        section = find_input_cards_section(result.document)
+        lines_in_section = result.document.lines[section.start:section.end]
+        assert find_fuel_lab_card(lines_in_section) is not None
+
+    def test_raises_when_no_section_has_a_fuel_lab_card(self):
+        from s3dash.parser.document import load_text
+
+        doc = load_text("'TIT.CAS' 'no fuel lab here' /\n'STA'/\n")
+        with pytest.raises(LoadingPatternError, match="FUE.LAB"):
+            find_input_cards_section(doc)
