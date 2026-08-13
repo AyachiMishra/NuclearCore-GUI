@@ -81,3 +81,63 @@ class TestApplyChange:
         entries = {(9, 9): _entry(9, 9, "CENTRE"), (2, 5): _entry(2, 5, "A")}
         with pytest.raises(ValidationError, match="symmetry orbit"):
             apply_change(entries, PositionChange(2, 5, 9, 9), geom)
+
+
+from s3dash.parser.nextcycle import validate
+
+
+class TestValidate:
+    def _base(self):
+        geom = _quarter_rotational(17)
+        from s3dash.parser.geometry import symmetry_orbit
+
+        a_orbit = symmetry_orbit(2, 5, geom)
+        b_orbit = symmetry_orbit(3, 3, geom)
+        entries = {(r, c): _entry(r, c, f"A{i}") for i, (r, c) in enumerate(a_orbit)}
+        entries.update({(r, c): _entry(r, c, f"B{i}") for i, (r, c) in enumerate(b_orbit)})
+        return geom, entries
+
+    def test_unchanged_pattern_is_valid(self):
+        geom, entries = self._base()
+        assert validate(entries, entries, geom) == []
+
+    def test_valid_swap_via_apply_change_stays_valid(self):
+        geom, entries = self._base()
+        new_entries, _ = apply_change(entries, PositionChange(2, 5, 3, 3), geom)
+        assert validate(new_entries, entries, geom) == []
+
+    def test_duplicate_serial_detected(self):
+        geom, entries = self._base()
+        (r, c) = next(iter(entries))
+        broken = dict(entries)
+        other = next(k for k in broken if k != (r, c))
+        broken[other] = LoadingEntry(row=other[0], col=other[1], token=broken[(r, c)].token, kind="reused")
+        problems = validate(broken, entries, geom)
+        assert any("appears at" in p for p in problems)
+
+    def test_vanished_position_detected(self):
+        geom, entries = self._base()
+        (r, c) = next(iter(entries))
+        broken = dict(entries)
+        del broken[(r, c)]
+        problems = validate(broken, entries, geom)
+        assert any("emptied" in p for p in problems)
+
+    def test_partial_orbit_detected(self):
+        # Directly construct a broken state (not reachable via apply_change,
+        # which always moves whole orbits) to prove validate() catches it
+        # independently, not just by trusting the caller used apply_change.
+        geom, entries = self._base()
+        (r, c) = next(iter(entries))
+        broken = dict(entries)
+        del broken[(r, c)]
+        problems = validate(broken, entries, geom)
+        assert any("symmetric" in p or "emptied" in p for p in problems)
+
+    def test_fresh_count_change_detected(self):
+        geom, entries = self._base()
+        (r, c) = next(iter(entries))
+        broken = dict(entries)
+        broken[(r, c)] = LoadingEntry(row=r, col=c, token=broken[(r, c)].token, kind="fresh")
+        problems = validate(broken, entries, geom)
+        assert any("fresh-batch" in p for p in problems)

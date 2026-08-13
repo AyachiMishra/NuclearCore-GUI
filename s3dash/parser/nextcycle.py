@@ -116,3 +116,60 @@ def apply_change(
         to_token=to_entry.token if (to_entry is not None and not same_position) else None,
     )
     return out, op
+
+
+def validate(
+    entries: dict[tuple[int, int], LoadingEntry],
+    original_entries: dict[tuple[int, int], LoadingEntry],
+    geom: Geometry,
+) -> list[str]:
+    """Every invariant of the closed loading-pattern model. Returns a
+    list of violated-rule messages -- empty means valid. Never raises;
+    this collects every problem for display rather than stopping at the
+    first, so the user sees the whole picture at once."""
+    problems: list[str] = []
+
+    added = sorted(set(entries) - set(original_entries))
+    removed = sorted(set(original_entries) - set(entries))
+    if added:
+        problems.append(f"{len(added)} position(s) now occupied that weren't: {added[:5]}")
+    if removed:
+        problems.append(f"{len(removed)} position(s) emptied that were occupied: {removed[:5]}")
+
+    seen: dict[str, list[tuple[int, int]]] = {}
+    for (r, c), e in entries.items():
+        if e.kind == "reused":
+            seen.setdefault(e.token, []).append((r, c))
+    for token, positions in seen.items():
+        if len(positions) > 1:
+            problems.append(f"{token} appears at {len(positions)} positions: {sorted(positions)}")
+
+    original_reused = {e.token for e in original_entries.values() if e.kind == "reused"}
+    now_reused = set(seen)
+    missing = original_reused - now_reused
+    if missing:
+        problems.append(f"{len(missing)} reused assembly reference(s) vanished: {sorted(missing)}")
+
+    fresh_before = sum(1 for e in original_entries.values() if e.kind == "fresh")
+    fresh_after = sum(1 for e in entries.values() if e.kind == "fresh")
+    if fresh_before != fresh_after:
+        problems.append(
+            f"fresh-batch position count changed ({fresh_before} -> {fresh_after}) -- "
+            f"moves and swaps must not create or remove assemblies"
+        )
+
+    checked_orbits: set[tuple[tuple[int, int], ...]] = set()
+    for (r, c) in entries:
+        orbit = tuple(symmetry_orbit(r, c, geom))
+        if orbit in checked_orbits:
+            continue
+        checked_orbits.add(orbit)
+        missing_partners = [pos for pos in orbit if pos not in entries]
+        if missing_partners:
+            problems.append(
+                f"{geom.site_label(r, c)} is occupied but its symmetry "
+                f"partner(s) at {sorted(missing_partners)} are not -- the "
+                f"loading pattern is no longer rotationally symmetric"
+            )
+
+    return problems
