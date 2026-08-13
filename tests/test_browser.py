@@ -101,3 +101,54 @@ class TestExports:
     def test_export_on_unknown_run_is_reported_not_raised(self):
         result = json.loads(browser.export_csv("deadbeef", step=0))
         assert result["ok"] is False
+
+
+class TestLoadingPattern:
+    @needs_listings
+    def test_supported_run_returns_full_entries(self, run_id):
+        result = json.loads(browser.loading_pattern(run_id))
+        assert result["ok"] is True
+        assert result["supported"] is True
+        assert len(result["entries"]) > 0
+
+    def test_unknown_run_is_reported_not_raised(self):
+        result = json.loads(browser.loading_pattern("deadbeef"))
+        assert result["ok"] is True
+        assert result["supported"] is False
+
+    @needs_listings
+    def test_apply_a_valid_swap(self, run_id):
+        original = json.loads(browser.loading_pattern(run_id))
+        reused = [e for e in original["entries"] if e["kind"] == "reused"]
+        a, b = reused[0], reused[1]
+        changes = json.dumps([
+            {"fromRow": a["row"], "fromCol": a["col"], "toRow": b["row"], "toCol": b["col"]}
+        ])
+        result = json.loads(browser.apply_loading_pattern(run_id, changes))
+        assert result["ok"] is True
+        assert result["valid"] is True
+        assert result["problems"] == []
+
+    @needs_listings
+    def test_apply_an_invalid_move_is_reported_not_raised(self, run_id):
+        changes = json.dumps([{"fromRow": 1, "fromCol": 1, "toRow": 2, "toCol": 2}])
+        result = json.loads(browser.apply_loading_pattern(run_id, changes))
+        assert result["ok"] is False
+        assert "No assembly" in result["detail"]
+
+    @needs_listings
+    def test_generate_returns_inp_text_reflecting_the_change(self, run_id):
+        original = json.loads(browser.loading_pattern(run_id))
+        reused = [e for e in original["entries"] if e["kind"] == "reused"]
+        a, b = reused[0], reused[1]
+        changes = json.dumps([
+            {"fromRow": a["row"], "fromCol": a["col"], "toRow": b["row"], "toCol": b["col"]}
+        ])
+        result = json.loads(
+            browser.generate_loading_pattern(run_id, changes, "placeholder.res", "0.0", None)
+        )
+        assert result["ok"] is True
+        assert "'RES' 'placeholder.res' 0.0/" in result["text"]
+        assert b["token"] in result["text"]
+        assert isinstance(result["flaggedCards"], list)
+        assert result["filename"].endswith("_cycle_next.inp")

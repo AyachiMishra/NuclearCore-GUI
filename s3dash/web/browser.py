@@ -15,8 +15,12 @@ import csv
 import io
 import json
 import uuid
+from pathlib import Path
 
 from ..parser import BuildResult, parse_text
+from ..parser.loadingpattern import LoadingPatternError, find_input_cards_section, parse_loading_pattern
+from ..parser.nextcycle import PositionChange, generate_inp, replay_changes, validate
+from ..parser.nextcycle import ValidationError as LoadingValidationError
 from .pdfreport import build_pdf
 
 _RUNS: dict[str, BuildResult] = {}
@@ -147,3 +151,119 @@ def report_pdf(run_id: str, step: int = 0) -> str:
     except Exception as exc:  # noqa: BLE001 -- a layout failure must not crash the page
         return _err(f"Could not render the PDF report: {exc}")
     return _ok({"pdfBase64": base64.b64encode(pdf_bytes).decode("ascii")})
+
+
+def _decode_original_pattern(result: BuildResult):
+    """The run's original loading-pattern entries, `None` if this run has
+    none (a normal case, not an error), or raises LoadingPatternError if
+    it has one but this geometry isn't supported. Callers translate both
+    the None and the raised case into the same {"supported": false, ...}
+    shape `loading_pattern()` returns."""
+    payload = result.payload
+    fresh_labels = {b["label"] for b in payload["inputDeck"]["batches"]}
+    return parse_loading_pattern(
+        result.document.lines,
+        result.geometry,
+        fresh_labels,
+        assembly_count=len(payload["assemblies"]),
+    )
+
+
+def loading_pattern(run_id: str) -> str:
+    result = _get(run_id)
+    if result is None:
+        return _ok({"supported": False, "reason": "Run not found; re-upload the file."})
+    try:
+        entries = _decode_original_pattern(result)
+    except LoadingPatternError as exc:
+        return _ok({"supported": False, "reason": str(exc)})
+    if entries is None:
+        return _ok({
+            "supported": False,
+            "reason": (
+                "This run has no FUE.LAB loading-pattern card -- likely a "
+                "first-cycle run with no restart file to shuffle from."
+            ),
+        })
+    return _ok({
+        "supported": True,
+        "entries": [e.to_json() for e in entries.values()],
+        "geometry": result.payload["geometry"],
+    })
+
+
+def _parse_changes(changes_json: str) -> list[PositionChange]:
+    raw = json.loads(changes_json)
+    return [PositionChange(c["fromRow"], c["fromCol"], c["toRow"], c["toCol"]) for c in raw]
+
+
+def apply_loading_pattern(run_id: str, changes_json: str) -> str:
+    result = _get(run_id)
+    if result is None:
+        return _err("Run not found; re-upload the file.")
+    try:
+        original = _decode_original_pattern(result)
+    except LoadingPatternError as exc:
+        return _err(str(exc))
+    if original is None:
+        return _err("This run has no FUE.LAB loading-pattern card to edit.")
+    changes = _parse_changes(changes_json)
+    try:
+        modified, operations = replay_changes(original, changes, result.geometry)
+    except LoadingValidationError as exc:
+        return _err(str(exc))
+    problems = validate(modified, original, result.geometry)
+    return _ok({
+        "entries": [e.to_json() for e in modified.values()],
+        "operations": [op.to_json() for op in operations],
+        "problems": problems,
+        "valid": not problems,
+    })
+
+
+def generate_loading_pattern(
+    run_id: str,
+    changes_json: str,
+    res_filename: str,
+    res_exposure: str,
+    wre_filename: str | None,
+) -> str:
+    result = _get(run_id)
+    if result is None:
+        return _err("Run not found; re-upload the file.")
+    try:
+        original = _decode_original_pattern(result)
+    except LoadingPatternError as exc:
+        return _err(str(exc))
+    if original is None:
+        return _err("This run has no FUE.LAB loading-pattern card to edit.")
+    changes = _parse_changes(changes_json)
+    try:
+        modified, operations = replay_changes(original, changes, result.geometry)
+    except LoadingValidationError as exc:
+        return _err(str(exc))
+    problems = validate(modified, original, result.geometry)
+    if problems:
+        return _err("; ".join(problems))
+    try:
+        section = find_input_cards_section(result.document)
+    except LoadingPatternError as exc:
+        return _err(str(exc))
+    gen = generate_inp(
+        lines=result.document.lines,
+        section_start=section.start,
+        section_end=section.end,
+        original_entries=original,
+        modified_entries=modified,
+        geom=result.geometry,
+        operations=operations,
+        res_filename=res_filename,
+        res_exposure=res_exposure,
+        wre_filename=wre_filename,
+    )
+    name = Path(result.payload["meta"]["fileName"] or "run").stem
+    return _ok({
+        "text": gen.text,
+        "flaggedCards": gen.flagged_cards,
+        "filename": f"{name}_cycle_next.inp",
+    })
