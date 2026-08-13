@@ -344,6 +344,16 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
 .notice-strip span { color: var(--text); }
 .edit-banner { border-radius: var(--radius); margin-bottom: 10px; font-weight: 700; letter-spacing: 0.02em; }
 .edit-toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 12px 0; }
+.edit-generate-fields { display: flex; flex-direction: column; gap: 8px; }
+.edit-generate-fields label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-dim); }
+.edit-generate-fields input { padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); font: inherit; }
+.edit-preview { margin-top: 10px; }
+.edit-preview-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.edit-preview-text {
+  max-height: 320px; overflow: auto; padding: 8px 10px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  font: 400 11.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word;
+}
 
 /* ----------------------------------------------------------------- toolbar */
 

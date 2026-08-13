@@ -86,6 +86,23 @@ export async function applyLoadingPattern(runId, changes) {
   return res.json();
 }
 
+/** POST /api/run/{id}/loading-pattern/generate -> {text, flaggedCards, filename} */
+export async function generateLoadingPattern(runId, changes, resFilename, resExposure, wreFilename) {
+  const res = await check(
+    await fetch(`/api/run/${encodeURIComponent(runId)}/loading-pattern/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        changes,
+        resFilename,
+        resExposure,
+        wreFilename: wreFilename || null,
+      }),
+    })
+  );
+  return res.json();
+}
+
 /** GET /api/run/{id}/export.json -> {blob, filename} */
 export async function exportJson(runId) {
   const res = await check(await fetch(`/api/run/${encodeURIComponent(runId)}/export.json`));

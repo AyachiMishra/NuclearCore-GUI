@@ -24,7 +24,7 @@ import {
 } from './state.js';
 import { categoricalColor } from './coremap.js';
 import { fetchSection } from './api.js';
-import { undo, redo, resetEdits } from './loadingeditor.js';
+import { undo, redo, resetEdits, generateInp } from './loadingeditor.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -1261,11 +1261,62 @@ export function renderLoadingEditorPanel() {
     );
   }
 
+  if (changes.length) {
+    out.push(
+      section(
+        'Generate next-cycle .inp',
+        `<div class="edit-generate-fields">` +
+          `<label>RES filename<input type="text" id="edit-res-filename" value="${esc(state.editResFilename)}" placeholder="s3.plant.c02.depl.res" /></label>` +
+          `<label>RES exposure<input type="text" id="edit-res-exposure" value="${esc(state.editResExposure)}" placeholder="20000." /></label>` +
+          `<label>WRE filename (optional)<input type="text" id="edit-wre-filename" value="${esc(state.editWreFilename)}" placeholder="s3.plant.c03.depl.res" /></label>` +
+          `<button type="button" class="btn" id="edit-generate" ${state.editValid && !state.editBusy ? '' : 'disabled'}>Generate .inp</button>` +
+          `</div>` +
+          (state.editGenerated
+            ? `<div class="edit-preview"><div class="edit-preview-head">` +
+              `<span>${esc(state.editGenerated.filename)}</span>` +
+              (state.editGenerated.flaggedCards.length
+                ? `<span class="tag tag-warn">carried from the source cycle: ${esc(state.editGenerated.flaggedCards.join(', '))}</span>`
+                : '') +
+              `<button type="button" class="btn btn-mini" id="edit-download">Download</button>` +
+              `</div><pre class="edit-preview-text">${esc(state.editGenerated.text)}</pre></div>`
+            : '')
+      )
+    );
+  }
+
   host.innerHTML = out.join('');
 
   $('#edit-undo').addEventListener('click', undo);
   $('#edit-redo').addEventListener('click', redo);
   $('#edit-reset').addEventListener('click', resetEdits);
+
+  const genBtn = $('#edit-generate');
+  if (genBtn) {
+    genBtn.addEventListener('click', () => {
+      const resFilename = $('#edit-res-filename').value.trim();
+      const resExposure = $('#edit-res-exposure').value.trim();
+      const wreFilename = $('#edit-wre-filename').value.trim() || null;
+      update({ editResFilename: resFilename, editResExposure: resExposure, editWreFilename: wreFilename }, 'editChange');
+      generateInp(resFilename, resExposure, wreFilename);
+    });
+  }
+  const dlBtn = $('#edit-download');
+  if (dlBtn) {
+    dlBtn.addEventListener('click', () => {
+      const g = state.editGenerated;
+      if (!g) return;
+      const blob = new Blob([g.text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = g.filename;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    });
+  }
 }
 
 /* --------------------------------------------------------------- clipboard */

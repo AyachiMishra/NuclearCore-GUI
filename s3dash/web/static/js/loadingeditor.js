@@ -10,7 +10,7 @@
  */
 
 import { state, update } from './state.js';
-import { fetchLoadingPattern, applyLoadingPattern } from './api.js';
+import { fetchLoadingPattern, applyLoadingPattern, generateLoadingPattern } from './api.js';
 
 /** Called once per successful run load (from app.js's load()). Populates
  *  editSupported/editReason/editOriginal/editTokenAssembly and pre-fills
@@ -216,4 +216,20 @@ export function resetEdits() {
     },
     'editChange'
   );
+}
+
+/** Calls /generate and stores the result as the preview -- the result IS
+ *  the preview (the design's "preview before download" requirement); a
+ *  separate downloadGenerated action in panels.js then saves it, with no
+ *  second round trip. */
+export async function generateInp(resFilename, resExposure, wreFilename) {
+  if (!state.editValid || state.editBusy) return;
+  const changes = state.editChanges.slice(0, state.editHistoryIndex);
+  update({ editBusy: true, editError: null }, 'editChange');
+  try {
+    const body = await generateLoadingPattern(state.runId, changes, resFilename, resExposure, wreFilename);
+    update({ editBusy: false, editGenerated: body }, 'editChange');
+  } catch (err) {
+    update({ editBusy: false, editError: err.message || String(err) }, 'editChange');
+  }
 }
