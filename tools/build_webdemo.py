@@ -34,6 +34,10 @@ def build(outdir: Path) -> None:
     (outdir / "css").mkdir(exist_ok=True)
     shutil.copy2(ROOT / "s3dash" / "web" / "static" / "css" / "app.css", outdir / "css" / "app.css")
 
+    # app.css's @font-face rules resolve "../fonts/*.woff2" relative to
+    # css/app.css, so this must land as a sibling of the css/ dir above.
+    shutil.copytree(ROOT / "s3dash" / "web" / "static" / "fonts", outdir / "fonts")
+
     (outdir / "sample_data").mkdir(exist_ok=True)
     shutil.copy2(ROOT / "sample_data" / "9074.out", outdir / "sample_data" / "9074.out")
 
