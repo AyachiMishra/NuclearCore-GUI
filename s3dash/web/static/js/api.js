@@ -68,6 +68,12 @@ function filenameFromDisposition(res) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/** GET /api/run/{id}/loading-pattern -> {supported, entries?, geometry?, suggested?, reason?} */
+export async function fetchLoadingPattern(runId) {
+  const res = await check(await fetch(`/api/run/${encodeURIComponent(runId)}/loading-pattern`));
+  return res.json();
+}
+
 /** GET /api/run/{id}/export.json -> {blob, filename} */
 export async function exportJson(runId) {
   const res = await check(await fetch(`/api/run/${encodeURIComponent(runId)}/export.json`));

@@ -47,6 +47,25 @@ export const state = {
   // null = show everything; otherwise a severity ('ERROR' | 'WARNING' |
   // 'CAUTION' | 'NOTE') or the 'SYMMETRY' category.
   diagFilter: null,
+
+  // Loading-pattern editor (loadingeditor.js). editSupported is a tri-state:
+  // null = not checked yet, false = checked and unsupported, true = ready.
+  editSupported: null,
+  editReason: null,
+  editOriginal: null, // {row,col,token,kind}[] from the server -- never mutated
+  editTokenAssembly: null, // Map<token, assembly> for display, built once per run
+  editChanges: [], // {fromRow,fromCol,toRow,toCol}[] -- full history, append-only except reset
+  editHistoryIndex: 0, // 0..editChanges.length; undo/redo move this, never truncate the array
+  editModified: null, // {row,col,token,kind}[] from the last apply() response
+  editOperations: [], // AppliedOperation.to_json()[] from the last apply() response
+  editProblems: [], // string[] from the last apply() response
+  editValid: false,
+  editBusy: false, // an apply/generate call is in flight
+  editError: null, // last apply/generate failure message, or null
+  editGenerated: null, // {text, flaggedCards, filename} from the last successful generate(), or null
+  editResFilename: '', // the RES/WRE generate-form fields; pre-filled from body.suggested
+  editResExposure: '',
+  editWreFilename: '',
 };
 
 /** Severities the diagnostics list can be narrowed to, plus the one category
@@ -117,6 +136,22 @@ export function installPayload(payload, runId) {
       hitLine: null,
       section: null,
       diagFilter: null,
+      editSupported: null,
+      editReason: null,
+      editOriginal: null,
+      editTokenAssembly: null,
+      editChanges: [],
+      editHistoryIndex: 0,
+      editModified: null,
+      editOperations: [],
+      editProblems: [],
+      editValid: false,
+      editBusy: false,
+      editError: null,
+      editGenerated: null,
+      editResFilename: '',
+      editResExposure: '',
+      editWreFilename: '',
     },
     'payload'
   );

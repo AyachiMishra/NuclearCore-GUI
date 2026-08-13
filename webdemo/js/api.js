@@ -53,6 +53,12 @@ export async function searchText(runId, query) {
   return body;
 }
 
+export async function fetchLoadingPattern(runId) {
+  const r = await call('loading_pattern', runId);
+  const { ok, ...body } = r;
+  return body;
+}
+
 export async function exportJson(runId) {
   const r = await call('export_json', runId);
   const text = JSON.stringify(r.payload, null, 2);

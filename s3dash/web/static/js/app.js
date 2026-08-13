@@ -36,6 +36,7 @@ import {
   fetchReportPdf,
 } from './api.js';
 import { initCoreMap, renderCoreMap, hideTooltip } from './coremap.js';
+import { refreshEditorSupport } from './loadingeditor.js';
 import {
   initCharts,
   renderDepletionChart,
@@ -119,6 +120,7 @@ async function load(promise, label) {
     const payload = await promise;
     const runId = payload.runId;
     installPayload(payload, runId);
+    refreshEditorSupport(runId);
     setBusy(false);
     const dlg = $('#load-dialog');
     if (dlg.open) dlg.close();
