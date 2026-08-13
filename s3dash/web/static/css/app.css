@@ -493,7 +493,7 @@ h1, h2, h3 { margin: 0; font-weight: 650; }
    beside it — so the surplus goes to the panels, where the wide tables
    (symmetry members, batch edits, the output summary) can use it. */
 body[data-view="map"] .layout {
-  grid-template-columns: minmax(230px, 290px) minmax(0, 672px) minmax(340px, 1fr);
+  grid-template-columns: minmax(220px, 260px) minmax(680px, 1fr) minmax(300px, 380px);
 }
 body[data-view="plots"] .layout,
 body[data-view="edit"] .layout {
@@ -692,10 +692,10 @@ body[data-view="sections"] .tree-scroll { max-height: 38vh; }
 
 /* ---------------------------------------------------------------- core map */
 
-/* The map is capped so it sits inside the page rather than being the page; it
-   still fills the column below that width, so narrow viewports lose nothing.
-   Cap and column were both grown 20% (500 -> 600 px) — cell labels scale with
-   the viewBox, so bigger cap means bigger type, not just more white. */
+/* Uncapped: the map is the primary workspace, so it fills whatever the
+   layout's center column gives it. Cell labels scale with the viewBox
+   (coremap.js's own CELL/PAD constants), so a wider column means bigger,
+   more legible cells, not just more surrounding white space. */
 .edit-layout { display: flex; gap: 12px; align-items: start; }
 .edit-layout #edit-map-card { flex: 1 1 auto; min-width: 0; }
 .edit-layout #edit-panel-card { flex: 0 0 340px; max-height: 80vh; overflow: auto; }
@@ -705,7 +705,7 @@ body[data-view="sections"] .tree-scroll { max-height: 38vh; }
 }
 
 .coremap-wrap { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
-.coremap { width: 100%; min-width: 0; max-width: 600px; margin-inline: auto; }
+.coremap { width: 100%; min-width: 0; margin-inline: auto; }
 .coremap-svg { width: 100%; height: auto; display: block; }
 .legend { max-width: 744px; margin-inline: auto; width: 100%; }
 
